@@ -1,0 +1,22 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# SQLite WAL and temporary files
+*.db-wal
+*.db-shm
+
+# Office temporary files
+~$*.xlsx
+~$*.docx
+
+# Environment and IDE files
+.env
+.venv
+env/
+venv/
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db

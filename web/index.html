@@ -1,0 +1,308 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Invoice Generator - ERP Billing Dashboard</title>
+    <!-- Google Fonts: Inter (English/Numbers), Noto Sans Telugu (Telugu), Noto Sans Devanagari (Hindi) -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Noto+Sans+Devanagari:wght@400;600;700&family=Noto+Sans+Telugu:wght@400;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="app-wrapper dashboard no-print">
+        <!-- Modern Header Navbar -->
+        <header class="app-header no-print">
+            <div class="header-container">
+                <div class="brand-section">
+                    <div class="brand-icon">🧾</div>
+                    <div class="brand-text">
+                        <h1>Invoice Generator</h1>
+                        <p class="subtitle">Create professional invoices with ease</p>
+                    </div>
+                </div>
+                <div class="header-right">
+                    <div class="header-badge calendar-badge">
+                        <span class="badge-icon">📅</span>
+                        <span id="currentDateHeader">Sep 13, 2026</span>
+                    </div>
+                    <div class="header-badge user-badge">
+                        <div class="user-avatar">👤</div>
+                        <div class="user-info">
+                            <span class="user-name">Sri Laxmi Gayatri Traders</span>
+                            <span class="user-role">Administrator</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </header>
+
+        <main class="main-container">
+            <!-- Statistics Section -->
+            <section class="stats-section">
+                <div class="stats-grid" id="statsBar">
+                    <div class="stat-card stat-card-customers">
+                        <div class="stat-card-header">
+                            <span class="stat-label">CUSTOMERS</span>
+                            <span class="stat-icon-wrapper">👥</span>
+                        </div>
+                        <div class="stat-value-container">
+                            <span class="stat-value" id="totalCustomers">0</span>
+                        </div>
+                        <div class="stat-footer">Active Accounts</div>
+                    </div>
+
+                    <div class="stat-card stat-card-products">
+                        <div class="stat-card-header">
+                            <span class="stat-label">PRODUCTS</span>
+                            <span class="stat-icon-wrapper">📦</span>
+                        </div>
+                        <div class="stat-value-container">
+                            <span class="stat-value" id="totalProducts">0</span>
+                        </div>
+                        <div class="stat-footer">Available Items</div>
+                    </div>
+
+                    <div class="stat-card stat-card-orders">
+                        <div class="stat-card-header">
+                            <span class="stat-label">ORDERS</span>
+                            <span class="stat-icon-wrapper">🛒</span>
+                        </div>
+                        <div class="stat-value-container">
+                            <span class="stat-value" id="totalOrders">0</span>
+                        </div>
+                        <div class="stat-footer">Total Invoiced</div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Main Form Card Container -->
+            <div class="form-container">
+                <!-- Customer Information Section -->
+                <section class="form-section card-section">
+                    <div class="section-header">
+                        <h2><span class="section-icon">👤</span> Customer Information</h2>
+                        <p class="section-desc">Select or enter customer and shop location details</p>
+                    </div>
+                    <div class="form-grid">
+                        <div class="form-group autocomplete-wrapper">
+                            <label for="shopName">Shop Name <span class="required">*</span></label>
+                            <div class="input-wrapper">
+                                <span class="input-icon">🏪</span>
+                                <input type="text" id="shopName" required placeholder="Enter shop name" autocomplete="off">
+                            </div>
+                            <div class="autocomplete-dropdown" id="customerAutocomplete"></div>
+                        </div>
+                        <div class="form-group">
+                            <label for="area">Area / Location <span class="required">*</span></label>
+                            <div class="input-wrapper">
+                                <span class="input-icon">📍</span>
+                                <input type="text" id="area" required placeholder="Enter area/location" autocomplete="off">
+                            </div>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- Product Entry Section -->
+                <section class="form-section card-section">
+                    <div class="section-header">
+                        <h2><span class="section-icon">🛍️</span> Add Products</h2>
+                        <p class="section-desc">Add items and prices to current invoice</p>
+                    </div>
+                    <div class="product-form">
+                        <div class="form-row">
+                            <div class="form-group flex-product autocomplete-wrapper">
+                                <label for="productName">Product Name <span class="required">*</span></label>
+                                <div class="input-wrapper">
+                                    <span class="input-icon">🏷️</span>
+                                    <input type="text" id="productName" required placeholder="Enter product name" autocomplete="off">
+                                </div>
+                                <div class="autocomplete-dropdown" id="productAutocomplete"></div>
+                            </div>
+                            <div class="form-group flex-qty">
+                                <label for="quantity">Quantity <span class="required">*</span></label>
+                                <div class="input-wrapper">
+                                    <span class="input-icon">🔢</span>
+                                    <input type="number" id="quantity" required min="1" placeholder="Qty">
+                                </div>
+                            </div>
+                            <div class="form-group flex-price">
+                                <label for="price">Unit Price <span class="required">*</span></label>
+                                <div class="input-wrapper">
+                                    <span class="input-icon">₹</span>
+                                    <input type="number" id="price" required step="0.01" min="0" placeholder="0.00">
+                                </div>
+                            </div>
+                            <div class="form-group flex-btn">
+                                <label>&nbsp;</label>
+                                <button type="button" id="addProductBtn" class="btn btn-add">
+                                    <span class="btn-icon">➕</span> Add Product
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- Customer Product Recommendations Section -->
+                <section class="form-section card-section" id="recommendationsSection" style="display: none;">
+                    <div class="section-header section-header-split">
+                        <div>
+                            <h2><span class="section-icon">⭐</span> <span id="recommendationsTitle">Frequently Ordered Products</span></h2>
+                            <p class="section-desc" id="recommendationsDesc">Products previously ordered by this customer</p>
+                        </div>
+                        <button type="button" id="refreshRecommendationsBtn" class="btn btn-small btn-secondary" title="Refresh customer recommendations">🔄 Refresh</button>
+                    </div>
+                    <div class="recommendations-container">
+                        <div id="recommendationsList" class="recommendations-list">
+                            <div class="loading-recommendations">Loading recommendations...</div>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- Customer Insights Section -->
+                <section class="form-section card-section" id="insightsSection" style="display: none;">
+                    <div class="section-header">
+                        <h2><span class="section-icon">📊</span> Customer Insights</h2>
+                        <p class="section-desc">Historical purchase patterns and summary metrics</p>
+                    </div>
+                    <div id="customerInsights" class="customer-insights">
+                        <!-- Insights loaded here -->
+                    </div>
+                </section>
+
+                <!-- Products List Section -->
+                <section class="form-section card-section">
+                    <div class="section-header">
+                        <h2><span class="section-icon">📋</span> Products Added</h2>
+                        <p class="section-desc">Review products added to this invoice</p>
+                    </div>
+                    <div class="products-container">
+                        <div id="productsList" class="products-list">
+                            <div class="empty-state">
+                                <div class="empty-icon">📦</div>
+                                <div class="empty-title">No products added yet</div>
+                                <div class="empty-sub">Add products using the form above</div>
+                            </div>
+                        </div>
+                        
+                        <!-- Prominent Total Amount Banner -->
+                        <div class="total-section">
+                            <div class="total-card">
+                                <div class="total-info">
+                                    <span class="total-title">Total Amount</span>
+                                    <span class="total-subtitle">Total calculated amount for this invoice</span>
+                                </div>
+                                <div class="total-value-wrapper">
+                                    <span id="totalAmount" class="total-amount">₹0.00</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- Invoice Type Selection Section -->
+                <section class="form-section card-section">
+                    <div class="section-header">
+                        <h2><span class="section-icon">📑</span> Invoice Type</h2>
+                        <p class="section-desc">Select how this invoice should be generated</p>
+                    </div>
+                    <div class="invoice-type-selection">
+                        <label class="radio-card" for="invoiceTypeCurrent">
+                            <input type="radio" id="invoiceTypeCurrent" name="invoiceType" value="current" checked>
+                            <div class="radio-custom"></div>
+                            <div class="radio-content">
+                                <span class="radio-title">Current Bill Only</span>
+                                <span class="radio-desc">Generate invoice for today's order only</span>
+                            </div>
+                        </label>
+                        <label class="radio-card" for="invoiceTypeAll">
+                            <input type="radio" id="invoiceTypeAll" name="invoiceType" value="all">
+                            <div class="radio-custom"></div>
+                            <div class="radio-content">
+                                <span class="radio-title">All Bills (With History)</span>
+                                <span class="radio-desc">Include all previous orders + today's order with grand total</span>
+                            </div>
+                        </label>
+                    </div>
+                </section>
+
+                <!-- Action Buttons Section -->
+                <section class="form-section action-section">
+                    <div class="action-buttons">
+                        <button type="button" id="clearAllBtn" class="btn btn-outline-danger">
+                            <span class="btn-icon">🗑️</span> Clear All
+                        </button>
+                        <button type="button" id="generateInvoiceBtn" class="btn btn-primary-lg">
+                            <span class="btn-icon">🧾</span> Generate Invoice
+                        </button>
+                    </div>
+                </section>
+            </div>
+        </main>
+
+        <!-- Status Messages -->
+        <div id="statusMessage" class="status-message"></div>
+
+        <!-- Toast Notifications Container -->
+        <div id="toastContainer" class="toast-container"></div>
+
+        <!-- Loading Overlay -->
+        <div id="loadingOverlay" class="loading-overlay">
+            <div class="loading-spinner">
+                <div class="spinner"></div>
+                <p>Generating your invoice...</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- A4 Tax Invoice Preview & Print Modal -->
+    <div id="invoiceModal" class="invoice-modal">
+        <div class="invoice-modal-overlay no-print" id="modalOverlay"></div>
+        <div class="invoice-modal-dialog">
+            <!-- Toolbar with Print, WhatsApp, Excel, and Close -->
+            <div class="invoice-modal-toolbar invoice-toolbar no-print">
+                <div class="toolbar-brand-info no-print">
+                    <span class="toolbar-icon">🧾</span>
+                    <div class="toolbar-title-group">
+                        <span class="toolbar-main-title">Tax Invoice Preview</span>
+                        <span class="toolbar-invoice-num" id="modalInvoiceNumber">INV-00000</span>
+                    </div>
+                    <span class="toolbar-type-badge" id="modalInvoiceTypeTag">Current Bill</span>
+                </div>
+                <div class="toolbar-buttons no-print">
+                    <button type="button" class="btn-tb btn-tb-print no-print" id="modalPrintBtn" title="Print or Save as PDF (A4)">
+                        <span>🖨️</span> Print / Save PDF
+                    </button>
+                    <button type="button" class="btn-tb btn-tb-whatsapp no-print" id="modalWhatsAppBtn" title="Share Invoice on WhatsApp">
+                        <span>💬</span> WhatsApp
+                    </button>
+                    <button type="button" class="btn-tb btn-tb-excel no-print" id="modalExcelBtn" title="Download Excel Spreadsheet">
+                        <span>📥</span> Excel (.xlsx)
+                    </button>
+                    <button type="button" class="btn-tb btn-tb-tab no-print" id="modalNewTabBtn" title="Open in Standalone Window">
+                        <span>↗️</span> Open Tab
+                    </button>
+                    <button type="button" class="btn-tb-close no-print" id="modalCloseBtn" title="Close Preview">
+                        ✕
+                    </button>
+                </div>
+            </div>
+
+            <!-- Non-printing Browser Print Instructions Hint -->
+            <div class="print-instruction-hint no-print">
+                💡 In Chrome Print Preview, select <strong>Destination → Save to PDF</strong>. Under <strong>More settings</strong>, disable <strong>Headers and footers</strong> for a clean invoice.
+            </div>
+
+            <!-- Printable A4 Sheet Area -->
+            <div class="invoice-modal-scroll">
+                <div id="invoicePrintArea" class="invoice-sheet-container invoice-print-area">
+                    <!-- Dynamic Indian Wholesale Tax Invoice HTML injected here -->
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html>
