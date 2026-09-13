@@ -29,11 +29,119 @@ document.addEventListener('DOMContentLoaded', function() {
         dateHeaderEl.textContent = now.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' });
     }
     
-    // Load system stats
-    loadSystemStats();
-    
-    // Auto-refresh stats every 30 seconds
-    setInterval(loadSystemStats, 30000);
+    // --- ERP Navigation & View Switching ---
+    document.querySelectorAll('.nav-item[data-view]').forEach(item => {
+        item.addEventListener('click', function() {
+            const targetView = this.dataset.view;
+            if (targetView) switchView(targetView);
+        });
+    });
+
+    const btnTopNewInv = document.getElementById('btnTopNewInvoice');
+    if (btnTopNewInv) {
+        btnTopNewInv.addEventListener('click', () => switchView('create-invoice'));
+    }
+
+    const globalDateRangeEl = document.getElementById('globalDateRange');
+    if (globalDateRangeEl) {
+        globalDateRangeEl.addEventListener('change', function() {
+            loadDashboard(this.value);
+        });
+    }
+
+    // Sidebar Mobile Toggle
+    const sidebarToggleBtn = document.getElementById('sidebarToggle');
+    const appSidebar = document.getElementById('appSidebar');
+    const sidebarOverlay = document.getElementById('sidebarOverlay');
+    if (sidebarToggleBtn && appSidebar && sidebarOverlay) {
+        sidebarToggleBtn.addEventListener('click', () => {
+            appSidebar.classList.toggle('mobile-open');
+            sidebarOverlay.classList.toggle('active');
+        });
+        sidebarOverlay.addEventListener('click', () => {
+            appSidebar.classList.remove('mobile-open');
+            sidebarOverlay.classList.remove('active');
+        });
+    }
+
+    // Dashboard Quick Links
+    const linkViewInvoices = document.getElementById('linkViewAllInvoices');
+    if (linkViewInvoices) {
+        linkViewInvoices.addEventListener('click', () => switchView('invoices'));
+    }
+    const linkViewCustomers = document.getElementById('linkViewAllCustomers');
+    if (linkViewCustomers) {
+        linkViewCustomers.addEventListener('click', () => switchView('customers'));
+    }
+
+    // --- Invoices Directory Filters ---
+    const invSearch = document.getElementById('invoiceSearchInput');
+    if (invSearch) {
+        invSearch.addEventListener('input', debounce(() => loadInvoicesTable(), 300));
+    }
+    const invClearSearch = document.getElementById('invoiceClearSearchBtn');
+    if (invClearSearch) {
+        invClearSearch.addEventListener('click', () => {
+            if (invSearch) invSearch.value = '';
+            loadInvoicesTable();
+        });
+    }
+    const invCustSelect = document.getElementById('invoiceCustomerSelect');
+    if (invCustSelect) invCustSelect.addEventListener('change', loadInvoicesTable);
+    const invDateSelect = document.getElementById('invoiceDateSelect');
+    if (invDateSelect) invDateSelect.addEventListener('change', loadInvoicesTable);
+    const invTypeSelect = document.getElementById('invoiceTypeSelect');
+    if (invTypeSelect) invTypeSelect.addEventListener('change', loadInvoicesTable);
+    const invSortSelect = document.getElementById('invoiceSortSelect');
+    if (invSortSelect) invSortSelect.addEventListener('change', loadInvoicesTable);
+    const invResetBtn = document.getElementById('btnResetInvoiceFilters');
+    if (invResetBtn) {
+        invResetBtn.addEventListener('click', () => {
+            if (invSearch) invSearch.value = '';
+            if (invCustSelect) invCustSelect.value = '';
+            if (invDateSelect) invDateSelect.value = 'all';
+            if (invTypeSelect) invTypeSelect.value = '';
+            if (invSortSelect) invSortSelect.value = 'date_desc';
+            loadInvoicesTable();
+        });
+    }
+
+    // --- Customers Directory Filters ---
+    const custSearch = document.getElementById('customerSearchInput');
+    if (custSearch) {
+        custSearch.addEventListener('input', debounce(() => loadCustomersTable(), 300));
+    }
+    const custSort = document.getElementById('customerSortSelect');
+    if (custSort) custSort.addEventListener('change', loadCustomersTable);
+
+    // --- Products Directory Filters ---
+    const prodSearch = document.getElementById('productSearchInput');
+    if (prodSearch) {
+        prodSearch.addEventListener('input', debounce(() => loadProductsTable(), 300));
+    }
+    const prodSort = document.getElementById('productSortSelect');
+    if (prodSort) prodSort.addEventListener('change', loadProductsTable);
+
+    // --- Customer Modal Drawer Close ---
+    const custModalClose = document.getElementById('custModalCloseBtn');
+    const custModalOverlay = document.getElementById('customerModalOverlay');
+    if (custModalClose) custModalClose.addEventListener('click', closeCustomerModal);
+    if (custModalOverlay) custModalOverlay.addEventListener('click', closeCustomerModal);
+
+    // --- Product Modal Drawer Close ---
+    const prodModalClose = document.getElementById('prodModalCloseBtn');
+    const prodModalOverlay = document.getElementById('productModalOverlay');
+    if (prodModalClose) prodModalClose.addEventListener('click', closeProductModal);
+    if (prodModalOverlay) prodModalOverlay.addEventListener('click', closeProductModal);
+
+    // --- Reset All Data Modal ---
+    initResetModal();
+
+    // --- Delete Modals & Bulk Actions ---
+    initDeleteModals();
+
+    // Load initial dashboard
+    loadDashboard('30d');
     
     // Customer Recommendations event listeners
     const refreshRecommendationsBtn = document.getElementById('refreshRecommendationsBtn');
@@ -107,7 +215,12 @@ document.addEventListener('DOMContentLoaded', function() {
     if (modalOverlay) modalOverlay.addEventListener('click', closeInvoiceModal);
 
     document.addEventListener('keydown', function(e) {
-        if (e.key === 'Escape') closeInvoiceModal();
+        if (e.key === 'Escape') {
+            closeInvoiceModal();
+            closeCustomerModal();
+            closeProductModal();
+            closeResetModal();
+        }
     });
 });
 
@@ -386,6 +499,10 @@ async function generateInvoice() {
             
             // Refresh customer recommendations immediately with the updated order history
             loadCustomerRecommendations(shopName);
+            if (typeof loadDashboard === 'function') {
+                const curRange = document.getElementById('globalDateRange')?.value || '30d';
+                loadDashboard(curRange);
+            }
         } else {
             throw new Error((result && result.error) || 'Failed to generate invoice');
         }
@@ -677,6 +794,11 @@ function displayInvoiceModal(invoiceData, historyData, downloadUrl) {
     if (printArea) {
         printArea.innerHTML = invoiceHtml;
     }
+    // Also render inside dedicated print root
+    const printRoot = document.getElementById('printInvoiceRoot');
+    if (printRoot) {
+        printRoot.innerHTML = invoiceHtml;
+    }
     
     if (modal) {
         modal.classList.add('active');
@@ -693,14 +815,24 @@ function closeInvoiceModal() {
     }
 }
 
-// Print invoice reliably using browser's native window.print()
+// Print invoice reliably using dedicated #printInvoiceRoot and native window.print()
 async function printInvoice() {
     const modal = document.getElementById('invoiceModal');
     const printArea = document.getElementById('invoicePrintArea');
+    const printRoot = document.getElementById('printInvoiceRoot');
     
-    if (!modal || !modal.classList.contains('active') || !printArea || !printArea.children.length) {
-        showToast('Please generate an invoice before printing', 'warning');
+    if ((!modal || !modal.classList.contains('active')) && !currentInvoiceData && (!printArea || !printArea.children.length)) {
+        showToast('Please generate or select an invoice before printing', 'warning');
         return;
+    }
+
+    // Render current invoice data inside #printInvoiceRoot before calling window.print()
+    if (printRoot) {
+        if (currentInvoiceData) {
+            printRoot.innerHTML = renderInvoiceHTML(currentInvoiceData, currentHistoryData);
+        } else if (printArea && printArea.children.length > 0) {
+            printRoot.innerHTML = printArea.innerHTML;
+        }
     }
 
     // Wait until fonts and resources are fully ready before launching print dialog
@@ -721,6 +853,19 @@ async function printInvoice() {
         });
     });
 }
+
+// Ensure #printInvoiceRoot always has the current invoice rendered if triggered via keyboard (Ctrl+P)
+window.addEventListener('beforeprint', () => {
+    const printRoot = document.getElementById('printInvoiceRoot');
+    const printArea = document.getElementById('invoicePrintArea');
+    if (printRoot) {
+        if (currentInvoiceData) {
+            printRoot.innerHTML = renderInvoiceHTML(currentInvoiceData, currentHistoryData);
+        } else if (printArea && printArea.children.length > 0) {
+            printRoot.innerHTML = printArea.innerHTML;
+        }
+    }
+});
 
 // WhatsApp Share
 function shareViaWhatsApp() {
@@ -1509,3 +1654,1771 @@ addProduct = function() {
         if (preview) preview.style.display = 'none';
     }
 };
+
+/* ==========================================================================
+   ERP DASHBOARD CONTROLLER & WORKSPACE LOGIC
+   ========================================================================== */
+
+let currentActiveView = 'dashboard';
+let salesChartInstance = null;
+
+// Switch between the 5 primary views
+function switchView(viewName) {
+    currentActiveView = viewName;
+    
+    // Update active nav button
+    document.querySelectorAll('.nav-item[data-view]').forEach(btn => {
+        if (btn.dataset.view === viewName) {
+            btn.classList.add('active');
+        } else {
+            btn.classList.remove('active');
+        }
+    });
+
+    // Close mobile sidebar if open
+    const sidebar = document.getElementById('appSidebar');
+    const overlay = document.getElementById('sidebarOverlay');
+    if (sidebar) sidebar.classList.remove('mobile-open');
+    if (overlay) overlay.classList.remove('active');
+
+    // Show/hide view containers
+    const viewContainers = {
+        'dashboard': document.getElementById('viewDashboard'),
+        'create-invoice': document.getElementById('viewCreateInvoice'),
+        'invoices': document.getElementById('viewInvoices'),
+        'customers': document.getElementById('viewCustomers'),
+        'products': document.getElementById('viewProducts')
+    };
+
+    Object.keys(viewContainers).forEach(v => {
+        if (viewContainers[v]) {
+            if (v === viewName) {
+                viewContainers[v].style.display = 'block';
+                viewContainers[v].classList.add('active');
+            } else {
+                viewContainers[v].style.display = 'none';
+                viewContainers[v].classList.remove('active');
+            }
+        }
+    });
+
+    // Update Topbar Title & Subtitle & Date range visibility
+    const titleEl = document.getElementById('pageTitle');
+    const subtitleEl = document.getElementById('pageSubtitle');
+    const topDateContainer = document.getElementById('topDateRangeContainer');
+
+    const meta = {
+        'dashboard': {
+            title: 'Dashboard',
+            subtitle: 'Real-time revenue, invoices, and business analytics',
+            showDate: true
+        },
+        'create-invoice': {
+            title: 'Create Invoice',
+            subtitle: 'Generate professional A4 Tax Invoice with learning autocomplete',
+            showDate: false
+        },
+        'invoices': {
+            title: 'Invoices',
+            subtitle: 'Searchable, filterable directory of all saved customer invoices',
+            showDate: false
+        },
+        'customers': {
+            title: 'Customers',
+            subtitle: 'Customer directory, purchase frequency, and total spend',
+            showDate: false
+        },
+        'products': {
+            title: 'Products',
+            subtitle: 'Product catalog, pricing intelligence, and sales performance',
+            showDate: false
+        }
+    }[viewName] || { title: 'Dashboard', subtitle: '', showDate: true };
+
+    if (titleEl) titleEl.textContent = meta.title;
+    if (subtitleEl) subtitleEl.textContent = meta.subtitle;
+    if (topDateContainer) {
+        topDateContainer.style.display = meta.showDate ? 'flex' : 'none';
+    }
+
+    // Scroll to top
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+
+    // Load data for view
+    if (viewName === 'dashboard') {
+        const dateRange = document.getElementById('globalDateRange')?.value || '30d';
+        loadDashboard(dateRange);
+    } else if (viewName === 'invoices') {
+        loadInvoicesTable();
+    } else if (viewName === 'customers') {
+        loadCustomersTable();
+    } else if (viewName === 'products') {
+        loadProductsTable();
+    }
+}
+
+// Dashboard Controller
+async function loadDashboard(dateRange = '30d') {
+    try {
+        const res = await fetch(`/api/dashboard?range=${encodeURIComponent(dateRange)}`);
+        const data = await res.json();
+        if (!data.success) {
+            console.error('Failed to load dashboard:', data.error);
+            return;
+        }
+
+        const m = data.metrics || {};
+        
+        // Update metric values
+        const elSales = document.getElementById('dashTotalSales');
+        const elMonth = document.getElementById('dashThisMonthSales');
+        const elInvoices = document.getElementById('dashTotalInvoices');
+        const elCustomers = document.getElementById('dashTotalCustomers');
+        const elProducts = document.getElementById('dashTotalProducts');
+        const elAov = document.getElementById('dashAvgOrderValue');
+
+        if (elSales) elSales.textContent = formatIndianCurrency(m.totalSales || 0);
+        if (elMonth) elMonth.textContent = formatIndianCurrency(m.thisMonthSales || 0);
+        if (elInvoices) elInvoices.textContent = (m.totalInvoices || 0).toLocaleString('en-IN');
+        if (elCustomers) elCustomers.textContent = (m.totalCustomers || 0).toLocaleString('en-IN');
+        if (elProducts) elProducts.textContent = (m.totalProducts || 0).toLocaleString('en-IN');
+        if (elAov) elAov.textContent = formatIndianCurrency(m.averageOrderValue || 0);
+
+        // Update sidebar badges
+        const badgeInv = document.getElementById('badgeInvoiceCount');
+        const badgeCust = document.getElementById('badgeCustomerCount');
+        const badgeProd = document.getElementById('badgeProductCount');
+        if (badgeInv) badgeInv.textContent = m.totalInvoices || 0;
+        if (badgeCust) badgeCust.textContent = m.totalCustomers || 0;
+        if (badgeProd) badgeProd.textContent = m.totalProducts || 0;
+
+        // Update period label
+        const periodLabels = {
+            '7d': 'Last 7 Days',
+            '30d': 'Last 30 Days',
+            'this_year': 'This Year',
+            'all': 'All Time'
+        };
+        const periodLabelEl = document.getElementById('chartPeriodLabel');
+        if (periodLabelEl) periodLabelEl.textContent = periodLabels[dateRange] || 'Last 30 Days';
+
+        // Render Sales Chart
+        renderSalesChart(data.chart || { labels: [], sales: [], orders: [] });
+
+        // Render Recent Invoices
+        renderRecentInvoices(data.recentInvoices || []);
+
+        // Load Top Customers in parallel
+        loadTopCustomers();
+
+    } catch (err) {
+        console.error('Error in loadDashboard:', err);
+    }
+}
+
+// Render Sales Revenue Trend Chart using Chart.js
+function renderSalesChart(chartData) {
+    const canvas = document.getElementById('salesChart');
+    if (!canvas) return;
+
+    if (typeof Chart === 'undefined') {
+        console.warn('Chart.js not loaded yet');
+        return;
+    }
+
+    const ctx = canvas.getContext('2d');
+    if (salesChartInstance) {
+        salesChartInstance.destroy();
+    }
+
+    const gradient = ctx.createLinearGradient(0, 0, 0, 260);
+    gradient.addColorStop(0, 'rgba(79, 70, 229, 0.35)');
+    gradient.addColorStop(1, 'rgba(79, 70, 229, 0.01)');
+
+    const labels = chartData.labels && chartData.labels.length ? chartData.labels : ['No Data'];
+    const sales = chartData.sales && chartData.sales.length ? chartData.sales : [0];
+
+    salesChartInstance = new Chart(ctx, {
+        type: 'line',
+        data: {
+            labels: labels,
+            datasets: [{
+                label: 'Sales Revenue (₹)',
+                data: sales,
+                borderColor: '#4F46E5',
+                borderWidth: 2.5,
+                backgroundColor: gradient,
+                fill: true,
+                tension: 0.35,
+                pointBackgroundColor: '#FFFFFF',
+                pointBorderColor: '#4F46E5',
+                pointBorderWidth: 2,
+                pointRadius: 4,
+                pointHoverRadius: 6
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: { display: false },
+                tooltip: {
+                    backgroundColor: '#0F172A',
+                    titleColor: '#F8FAFC',
+                    bodyColor: '#F8FAFC',
+                    padding: 10,
+                    cornerRadius: 8,
+                    callbacks: {
+                        label: function(context) {
+                            return ' Sales: ₹' + formatIndianCurrency(context.parsed.y);
+                        }
+                    }
+                }
+            },
+            scales: {
+                x: {
+                    grid: { display: false, drawBorder: false },
+                    ticks: { color: '#64748B', font: { size: 11 } }
+                },
+                y: {
+                    grid: { color: '#F1F5F9', drawBorder: false },
+                    ticks: {
+                        color: '#64748B',
+                        font: { size: 11 },
+                        callback: function(val) {
+                            if (val >= 100000) return '₹' + (val / 100000).toFixed(1) + 'L';
+                            if (val >= 1000) return '₹' + (val / 1000).toFixed(0) + 'k';
+                            return '₹' + val;
+                        }
+                    }
+                }
+            }
+        }
+    });
+}
+
+// Render Recent Invoices on Dashboard
+function renderRecentInvoices(invoices) {
+    const tbody = document.getElementById('dashRecentInvoicesBody');
+    if (!tbody) return;
+
+    if (!invoices || !invoices.length) {
+        tbody.innerHTML = `
+            <tr>
+                <td colspan="7" class="loading-state">No recent invoices found.</td>
+            </tr>
+        `;
+        return;
+    }
+
+    tbody.innerHTML = invoices.map(inv => {
+        const typeBadgeClass = inv.invoiceType === 'all' ? 'badge-all' : 'badge-current';
+        const typeBadgeText = inv.invoiceType === 'all' ? 'All Bills' : 'Current';
+        return `
+            <tr data-invoice-number="${escapeHtml(inv.invoiceNumber)}" id="dash-invoice-row-${escapeHtml(inv.invoiceNumber)}">
+                <td>
+                    <strong class="text-primary-color" style="cursor:pointer;" onclick="previewInvoiceByNumber('${escapeHtml(inv.invoiceNumber)}')">
+                        ${escapeHtml(inv.invoiceNumber)}
+                    </strong>
+                </td>
+                <td>
+                    <strong style="color:#0F172A; cursor:pointer;" onclick="openCustomerModal('${escapeHtml(inv.customerName)}')">${escapeHtml(inv.customerName)}</strong>
+                </td>
+                <td>
+                    <span class="cust-area-pill">${escapeHtml(inv.area || 'Wholesale')}</span>
+                </td>
+                <td>
+                    <div>${escapeHtml(inv.dateFormatted || inv.date)}</div>
+                    <span class="relative-time">${escapeHtml(inv.relativeDate || '')}</span>
+                </td>
+                <td>
+                    <span class="badge-type ${typeBadgeClass}">${typeBadgeText}</span>
+                </td>
+                <td class="text-right font-bold" style="color:#0F172A;">
+                    ₹${formatIndianCurrency(inv.totalAmount)}
+                </td>
+                <td class="text-center">
+                    <div class="action-btn-group">
+                        <button type="button" class="btn-action" title="Preview Tax Invoice" onclick="previewInvoiceByNumber('${escapeHtml(inv.invoiceNumber)}')">
+                            👁️
+                        </button>
+                        <button type="button" class="btn-action" title="Print Invoice" onclick="previewInvoiceByNumber('${escapeHtml(inv.invoiceNumber)}', true)">
+                            🖨️
+                        </button>
+                        ${inv.downloadUrl ? `
+                            <a href="${inv.downloadUrl}" class="btn-action action-excel" title="Download Excel" download>
+                                📥
+                            </a>
+                        ` : ''}
+                        <button type="button" class="btn-action action-delete" title="Delete Invoice" data-action="delete-invoice" data-id="${escapeHtml(inv.invoiceNumber)}" data-invoice-id="${escapeHtml(inv.invoiceNumber)}" data-invoice-number="${escapeHtml(inv.invoiceNumber)}" data-customer="${escapeHtml(inv.customerName)}" data-date="${escapeHtml(inv.dateFormatted || inv.date)}" data-amount="${inv.totalAmount}" onclick="openDeleteInvoiceModal('${escapeHtml(inv.invoiceNumber)}', '${escapeHtml(inv.customerName)}', '${escapeHtml(inv.dateFormatted || inv.date)}', ${inv.totalAmount})">
+                            🗑️
+                        </button>
+                    </div>
+                </td>
+            </tr>
+        `;
+    }).join('');
+}
+
+// Load Top Customers in Dashboard
+async function loadTopCustomers() {
+    const container = document.getElementById('dashTopCustomersList');
+    if (!container) return;
+
+    try {
+        const res = await fetch('/api/customers?sort_by=amount');
+        const data = await res.json();
+        if (data.success && data.customers && data.customers.length) {
+            const top5 = data.customers.slice(0, 5);
+            container.innerHTML = top5.map((c, idx) => {
+                const rankClass = idx === 0 ? 'rank-1' : idx === 1 ? 'rank-2' : idx === 2 ? 'rank-3' : '';
+                return `
+                    <div class="top-cust-item" onclick="openCustomerModal('${escapeHtml(c.customerName)}')">
+                        <div class="top-cust-left">
+                            <span class="top-cust-rank ${rankClass}">${idx + 1}</span>
+                            <div>
+                                <div class="top-cust-name">${escapeHtml(c.customerName)}</div>
+                                <div class="top-cust-area">${escapeHtml(c.area || 'Wholesale')}</div>
+                            </div>
+                        </div>
+                        <div class="top-cust-right">
+                            <div class="top-cust-amount">₹${formatIndianCurrency(c.totalAmount)}</div>
+                            <div class="top-cust-invoices">${c.invoiceCount} order${c.invoiceCount !== 1 ? 's' : ''}</div>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        } else {
+            container.innerHTML = '<div class="loading-state">No customer history yet.</div>';
+        }
+    } catch (e) {
+        console.error('Error loading top customers:', e);
+    }
+}
+
+// Invoices Directory Controller
+async function loadInvoicesTable() {
+    const tbody = document.getElementById('invoicesTableBody');
+    if (tbody) {
+        tbody.innerHTML = '<tr><td colspan="8" class="loading-state">Loading invoices...</td></tr>';
+    }
+
+    const q = document.getElementById('invoiceSearchInput')?.value || '';
+    const customer = document.getElementById('invoiceCustomerSelect')?.value || '';
+    const dateRange = document.getElementById('invoiceDateSelect')?.value || 'all';
+    const typeFilter = document.getElementById('invoiceTypeSelect')?.value || '';
+    const sortVal = document.getElementById('invoiceSortSelect')?.value || 'date_desc';
+
+    let sortBy = 'date';
+    let sortOrder = 'desc';
+    if (sortVal === 'date_asc') { sortBy = 'date'; sortOrder = 'asc'; }
+    else if (sortVal === 'amount_desc') { sortBy = 'amount'; sortOrder = 'desc'; }
+    else if (sortVal === 'amount_asc') { sortBy = 'amount'; sortOrder = 'asc'; }
+    else if (sortVal === 'customer_asc') { sortBy = 'customer'; sortOrder = 'asc'; }
+
+    const clearBtn = document.getElementById('invoiceClearSearchBtn');
+    if (clearBtn) clearBtn.style.display = q ? 'block' : 'none';
+
+    try {
+        const url = `/api/invoices?q=${encodeURIComponent(q)}&customer=${encodeURIComponent(customer)}&range=${encodeURIComponent(dateRange)}&type=${encodeURIComponent(typeFilter)}&sort_by=${sortBy}&sort_order=${sortOrder}&limit=150`;
+        const res = await fetch(url);
+        const data = await res.json();
+
+        if (!data.success) {
+            if (tbody) tbody.innerHTML = `<tr><td colspan="8" class="loading-state">${data.error || 'Failed to load invoices'}</td></tr>`;
+            return;
+        }
+
+        // Populate customer options if empty
+        const custSelect = document.getElementById('invoiceCustomerSelect');
+        if (custSelect && custSelect.options.length <= 1 && data.customerOptions) {
+            data.customerOptions.forEach(cName => {
+                const opt = document.createElement('option');
+                opt.value = cName;
+                opt.textContent = cName;
+                custSelect.appendChild(opt);
+            });
+        }
+
+        // Summary bar
+        const countEl = document.getElementById('invTableCount');
+        const totalEl = document.getElementById('invTableTotal');
+        if (countEl) countEl.textContent = data.totalCount || 0;
+        if (totalEl) totalEl.textContent = '₹' + formatIndianCurrency(data.totalAmount || 0);
+
+        const invoices = data.invoices || [];
+        const selectAll = document.getElementById('selectAllInvoices');
+        if (selectAll) selectAll.checked = false;
+        updateInvoicesBulkBar();
+
+        if (!invoices.length) {
+            if (tbody) tbody.innerHTML = '<tr><td colspan="9" class="loading-state">No matching invoices found.</td></tr>';
+            return;
+        }
+
+        if (tbody) {
+            tbody.innerHTML = invoices.map(inv => {
+                const typeBadgeClass = inv.invoiceType === 'all' ? 'badge-all' : 'badge-current';
+                const typeBadgeText = inv.invoiceType === 'all' ? 'All Bills' : 'Current';
+                const dateStr = inv.dateFormatted || inv.date || '';
+                return `
+                    <tr data-invoice-number="${escapeHtml(inv.invoiceNumber)}" id="invoice-row-${escapeHtml(inv.invoiceNumber)}">
+                        <td style="text-align: center;">
+                            <input type="checkbox" class="invoice-row-checkbox invoice-checkbox" value="${escapeHtml(inv.invoiceNumber)}" data-id="${escapeHtml(inv.invoiceNumber)}" data-invoice-id="${escapeHtml(inv.invoiceNumber)}" data-amount="${inv.totalAmount}" onchange="updateInvoicesBulkBar()">
+                        </td>
+                        <td>
+                            <strong class="text-primary-color" style="cursor:pointer;" onclick="previewInvoiceByNumber('${escapeHtml(inv.invoiceNumber)}')">
+                                ${escapeHtml(inv.invoiceNumber)}
+                            </strong>
+                        </td>
+                        <td>
+                            <strong style="color:#0F172A; cursor:pointer;" onclick="openCustomerModal('${escapeHtml(inv.customerName)}')">
+                                ${escapeHtml(inv.customerName)}
+                            </strong>
+                        </td>
+                        <td>
+                            <span class="cust-area-pill">${escapeHtml(inv.area || 'Wholesale')}</span>
+                        </td>
+                        <td>
+                            <div>${escapeHtml(dateStr)}</div>
+                            <span class="relative-time">${escapeHtml(inv.relativeDate || '')}</span>
+                        </td>
+                        <td>
+                            <span class="badge-type ${typeBadgeClass}">${typeBadgeText}</span>
+                        </td>
+                        <td class="text-center">
+                            <span class="badge-type">${inv.productCount || 0} items</span>
+                        </td>
+                        <td class="text-right font-bold" style="color:#0F172A;">
+                            ₹${formatIndianCurrency(inv.totalAmount)}
+                        </td>
+                        <td class="text-center">
+                            <div class="action-btn-group">
+                                <button type="button" class="btn-action" title="Preview Tax Invoice" onclick="previewInvoiceByNumber('${escapeHtml(inv.invoiceNumber)}')">
+                                    👁️ Preview
+                                </button>
+                                <button type="button" class="btn-action" title="Print Invoice" onclick="previewInvoiceByNumber('${escapeHtml(inv.invoiceNumber)}', true)">
+                                    🖨️ Print
+                                </button>
+                                ${inv.downloadUrl ? `
+                                    <a href="${inv.downloadUrl}" class="btn-action action-excel" title="Download Excel" download>
+                                        📥 Excel
+                                    </a>
+                                ` : ''}
+                                <button type="button" class="btn-action action-delete" title="Delete Invoice" data-action="delete-invoice" data-id="${escapeHtml(inv.invoiceNumber)}" data-invoice-id="${escapeHtml(inv.invoiceNumber)}" data-invoice-number="${escapeHtml(inv.invoiceNumber)}" data-customer="${escapeHtml(inv.customerName)}" data-date="${escapeHtml(dateStr)}" data-amount="${inv.totalAmount}" onclick="openDeleteInvoiceModal('${escapeHtml(inv.invoiceNumber)}', '${escapeHtml(inv.customerName)}', '${escapeHtml(dateStr)}', ${inv.totalAmount})">
+                                    🗑️
+                                </button>
+                            </div>
+                        </td>
+                    </tr>
+                `;
+            }).join('');
+            
+            // Attach event delegation if not already attached
+            setupInvoicesTableDelegation();
+        }
+
+    } catch (err) {
+        console.error('Error loading invoices table:', err);
+        if (tbody) tbody.innerHTML = '<tr><td colspan="9" class="loading-state">Error loading invoices.</td></tr>';
+    }
+}
+
+// Customers Directory Controller
+async function loadCustomersTable() {
+    const grid = document.getElementById('customersCardGrid');
+    if (grid) {
+        grid.innerHTML = '<div class="loading-state">Loading customer accounts...</div>';
+    }
+
+    const q = document.getElementById('customerSearchInput')?.value || '';
+    const sortBy = document.getElementById('customerSortSelect')?.value || 'amount';
+
+    try {
+        const url = `/api/customers?q=${encodeURIComponent(q)}&sort_by=${encodeURIComponent(sortBy)}`;
+        const res = await fetch(url);
+        const data = await res.json();
+
+        if (!data.success) return;
+
+        const countEl = document.getElementById('customersTotalCount');
+        if (countEl) countEl.textContent = data.totalCount || 0;
+
+        const customers = data.customers || [];
+        if (!customers.length) {
+            if (grid) grid.innerHTML = '<div class="loading-state">No matching customers found.</div>';
+            return;
+        }
+
+        if (grid) {
+            grid.innerHTML = customers.map(c => {
+                const topProdsHtml = (c.topProducts || []).map(tp => 
+                    `<span class="cust-prod-tag">${escapeHtml(tp.name)} (${tp.orders}x)</span>`
+                ).join('');
+
+                return `
+                    <div class="customer-card">
+                        <div>
+                            <div class="customer-card-header">
+                                <div class="cust-name-box">
+                                    <h3>${escapeHtml(c.customerName)}</h3>
+                                    <span class="cust-area-pill">📍 ${escapeHtml(c.area || 'Wholesale')}</span>
+                                </div>
+                            </div>
+
+                            <div class="cust-stat-row">
+                                <div class="cust-stat-col">
+                                    <span class="cust-stat-lbl">TOTAL SPEND</span>
+                                    <span class="cust-stat-val">₹${formatIndianCurrency(c.totalAmount)}</span>
+                                </div>
+                                <div class="cust-stat-col">
+                                    <span class="cust-stat-lbl">INVOICES</span>
+                                    <span class="cust-stat-val">${c.invoiceCount}</span>
+                                </div>
+                                <div class="cust-stat-col">
+                                    <span class="cust-stat-lbl">LAST ORDER</span>
+                                    <span class="cust-stat-val" style="font-size:0.78rem;">${escapeHtml(c.lastDateFormatted || '-')}</span>
+                                </div>
+                            </div>
+
+                            ${topProdsHtml ? `
+                                <div class="cust-top-prods-title">TOP PURCHASED ITEMS:</div>
+                                <div class="cust-top-prods-list">${topProdsHtml}</div>
+                            ` : ''}
+                        </div>
+
+                        <div class="customer-card-actions">
+                            <button type="button" class="btn btn-secondary-sm" onclick="openCustomerModal('${escapeHtml(c.customerName)}')">
+                                📑 History & Insights
+                            </button>
+                            <button type="button" class="btn btn-primary-sm" onclick="createInvoiceForCustomer('${escapeHtml(c.customerName)}', '${escapeHtml(c.area || '')}')">
+                                ➕ New Invoice
+                            </button>
+                            <button type="button" class="btn btn-danger-sm action-delete" onclick="openDeleteCustomerModal('${escapeHtml(c.customerName)}')" title="Delete Customer">
+                                🗑️
+                            </button>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
+
+    } catch (e) {
+        console.error('Error loading customers:', e);
+    }
+}
+
+// Products Directory Controller
+async function loadProductsTable() {
+    const tbody = document.getElementById('productsTableBody');
+    if (tbody) {
+        tbody.innerHTML = '<tr><td colspan="8" class="loading-state">Loading products...</td></tr>';
+    }
+
+    const q = document.getElementById('productSearchInput')?.value || '';
+    const sortBy = document.getElementById('productSortSelect')?.value || 'quantity';
+
+    try {
+        const url = `/api/products?q=${encodeURIComponent(q)}&sort_by=${encodeURIComponent(sortBy)}`;
+        const res = await fetch(url);
+        const data = await res.json();
+
+        if (!data.success) return;
+
+        const countEl = document.getElementById('productsTotalCount');
+        if (countEl) countEl.textContent = data.totalCount || 0;
+
+        const products = data.products || [];
+        if (!products.length) {
+            if (tbody) tbody.innerHTML = '<tr><td colspan="8" class="loading-state">No matching products found.</td></tr>';
+            return;
+        }
+
+        if (tbody) {
+            tbody.innerHTML = products.map(p => `
+                <tr>
+                    <td>
+                        <strong style="color:#0F172A; cursor:pointer;" onclick="openProductModal('${escapeHtml(p.productName)}')">
+                            🏷️ ${escapeHtml(p.productName)}
+                        </strong>
+                    </td>
+                    <td class="text-right font-bold" style="color:#16A34A;">
+                        ₹${formatIndianCurrency(p.lastPrice)}
+                    </td>
+                    <td class="text-right" style="color:#475569;">
+                        ₹${formatIndianCurrency(p.avgPrice)}
+                    </td>
+                    <td class="text-center font-bold">
+                        ${p.totalQuantitySold}
+                    </td>
+                    <td class="text-right font-bold" style="color:#0F172A;">
+                        ₹${formatIndianCurrency(p.totalSales)}
+                    </td>
+                    <td class="text-center">
+                        <span class="badge-type">${p.invoiceCount}</span>
+                    </td>
+                    <td class="text-center">
+                        <span class="badge-type" style="background:#EEF2FF; color:#4F46E5;">${p.customerCount}</span>
+                    </td>
+                    <td class="text-center">
+                        <div class="action-btn-group">
+                            <button type="button" class="btn-action" onclick="openProductModal('${escapeHtml(p.productName)}')">
+                                📊 Details
+                            </button>
+                            <button type="button" class="btn-action action-delete" onclick="openDeleteProductModal('${escapeHtml(p.productName)}')" title="Delete Product">
+                                🗑️
+                            </button>
+                        </div>
+                    </td>
+                </tr>
+            `).join('');
+        }
+
+    } catch (e) {
+        console.error('Error loading products:', e);
+    }
+}
+
+// Customer Detail Modal
+async function openCustomerModal(customerName) {
+    const modal = document.getElementById('customerModal');
+    if (!modal) return;
+
+    showLoading(true);
+    try {
+        const res = await fetch(`/api/customers/${encodeURIComponent(customerName)}`);
+        const data = await res.json();
+        if (!data.success || !data.customer) {
+            showToast('Customer details not found', 'error');
+            return;
+        }
+
+        const c = data.customer;
+        document.getElementById('custModalName').textContent = c.customerName;
+        document.getElementById('custModalArea').textContent = `📍 ${c.area || 'Wholesale'}`;
+        document.getElementById('custModalSpend').textContent = '₹' + formatIndianCurrency(c.totalSpend);
+        document.getElementById('custModalInvCount').textContent = c.invoiceCount;
+        document.getElementById('custModalAOV').textContent = '₹' + formatIndianCurrency(c.averageOrderValue);
+        document.getElementById('custModalLastDate').textContent = c.lastDateFormatted || '-';
+
+        // Connect Create Invoice button in drawer
+        const createBtn = document.getElementById('custModalCreateInvBtn');
+        if (createBtn) {
+            createBtn.onclick = () => {
+                closeCustomerModal();
+                createInvoiceForCustomer(c.customerName, c.area);
+            };
+        }
+
+        // Connect Delete Customer button in drawer
+        const deleteCustBtn = document.getElementById('custModalDeleteBtn');
+        if (deleteCustBtn) {
+            deleteCustBtn.onclick = () => {
+                closeCustomerModal();
+                openDeleteCustomerModal(c.customerName);
+            };
+        }
+
+        // Render frequently ordered products pills
+        const recTags = document.getElementById('custModalTopProducts');
+        if (recTags) {
+            const freqs = c.frequentlyOrdered || [];
+            if (freqs.length) {
+                recTags.innerHTML = freqs.map(p => `
+                    <button type="button" class="rec-pill-interactive" title="Click to add to invoice" onclick="addRecommendedProductDirect('${escapeHtml(p.name)}', ${p.last_price || 0})">
+                        <span>🏷️ ${escapeHtml(p.name)}</span>
+                        <span style="font-weight:700; color:#4F46E5;">₹${formatIndianCurrency(p.last_price)}</span>
+                        <span style="color:#64748B; font-size:0.7rem;">(${p.order_count}x)</span>
+                    </button>
+                `).join('');
+            } else {
+                recTags.innerHTML = '<span style="color:#64748B; font-size:0.8rem;">No previous item orders recorded.</span>';
+            }
+        }
+
+        // Render customer invoices
+        const tbody = document.getElementById('custModalInvoicesBody');
+        if (tbody) {
+            const invs = c.invoices || [];
+            if (invs.length) {
+                tbody.innerHTML = invs.map(inv => `
+                    <tr>
+                        <td>
+                            <strong class="text-primary-color" style="cursor:pointer;" onclick="previewInvoiceByNumber('${escapeHtml(inv.invoiceNumber)}')">
+                                ${escapeHtml(inv.invoiceNumber)}
+                            </strong>
+                        </td>
+                        <td>${escapeHtml(inv.dateFormatted || inv.date)}</td>
+                        <td>${inv.productCount || 0} items</td>
+                        <td class="text-right font-bold">₹${formatIndianCurrency(inv.totalAmount)}</td>
+                        <td class="text-center">
+                            <div class="action-btn-group">
+                                <button type="button" class="btn-action" title="Preview" onclick="previewInvoiceByNumber('${escapeHtml(inv.invoiceNumber)}')">
+                                    👁️
+                                </button>
+                                <button type="button" class="btn-action" title="Print" onclick="previewInvoiceByNumber('${escapeHtml(inv.invoiceNumber)}', true)">
+                                    🖨️
+                                </button>
+                                ${inv.downloadUrl ? `
+                                    <a href="${inv.downloadUrl}" class="btn-action action-excel" title="Download Excel" download>
+                                        📥
+                                    </a>
+                                ` : ''}
+                            </div>
+                        </td>
+                    </tr>
+                `).join('');
+            } else {
+                tbody.innerHTML = '<tr><td colspan="5" class="loading-state">No invoices recorded for this customer.</td></tr>';
+            }
+        }
+
+        modal.classList.add('active');
+        document.body.style.overflow = 'hidden';
+
+    } catch (e) {
+        console.error('Error opening customer modal:', e);
+    } finally {
+        showLoading(false);
+    }
+}
+
+function closeCustomerModal() {
+    const modal = document.getElementById('customerModal');
+    if (modal) {
+        modal.classList.remove('active');
+        document.body.style.overflow = '';
+    }
+}
+
+// Product Detail Modal
+async function openProductModal(productName) {
+    const modal = document.getElementById('productModal');
+    if (!modal) return;
+
+    showLoading(true);
+    try {
+        const res = await fetch(`/api/products/${encodeURIComponent(productName)}`);
+        const data = await res.json();
+        if (!data.success || !data.product) {
+            showToast('Product details not found', 'error');
+            return;
+        }
+
+        const p = data.product;
+        document.getElementById('prodModalName').textContent = p.productName;
+        document.getElementById('prodModalPrice').textContent = `Current / Last Price: ₹${formatIndianCurrency(p.latestPrice)}`;
+        document.getElementById('prodModalRevenue').textContent = '₹' + formatIndianCurrency(p.totalRevenue);
+        document.getElementById('prodModalQty').textContent = p.totalQuantitySold;
+        document.getElementById('prodModalBuyers').textContent = p.customerCount;
+        document.getElementById('prodModalInvoices').textContent = p.invoiceCount;
+        
+        // Connect Delete Product button in drawer
+        const deleteProdBtn = document.getElementById('prodModalDeleteBtn');
+        if (deleteProdBtn) {
+            deleteProdBtn.onclick = () => {
+                closeProductModal();
+                openDeleteProductModal(p.productName);
+            };
+        }
+
+        // Render Buyers
+        const buyersBody = document.getElementById('prodModalBuyersBody');
+        if (buyersBody) {
+            const buyers = p.customers || [];
+            if (buyers.length) {
+                buyersBody.innerHTML = buyers.map(b => `
+                    <tr>
+                        <td>
+                            <strong style="color:#0F172A; cursor:pointer;" onclick="closeProductModal(); openCustomerModal('${escapeHtml(b.customerName)}')">
+                                ${escapeHtml(b.customerName)}
+                            </strong>
+                        </td>
+                        <td class="text-center font-bold">${b.orderCount}</td>
+                        <td class="text-center">${b.totalQuantity}</td>
+                        <td class="text-right font-bold" style="color:#16A34A;">₹${formatIndianCurrency(b.lastPrice)}</td>
+                        <td>${escapeHtml(b.lastOrderedDate || '-')}</td>
+                    </tr>
+                `).join('');
+            } else {
+                buyersBody.innerHTML = '<tr><td colspan="5" class="loading-state">No buyers recorded yet.</td></tr>';
+            }
+        }
+
+        // Render Recent Invoices
+        const invBody = document.getElementById('prodModalInvoicesBody');
+        if (invBody) {
+            const invs = p.recentInvoices || [];
+            if (invs.length) {
+                invBody.innerHTML = invs.map(inv => `
+                    <tr>
+                        <td>
+                            <strong class="text-primary-color" style="cursor:pointer;" onclick="previewInvoiceByNumber('${escapeHtml(inv.invoiceNumber)}')">
+                                ${escapeHtml(inv.invoiceNumber)}
+                            </strong>
+                        </td>
+                        <td>${escapeHtml(inv.customerName)}</td>
+                        <td class="text-center">${inv.quantity}</td>
+                        <td class="text-right">₹${formatIndianCurrency(inv.price)}</td>
+                        <td class="text-right font-bold">₹${formatIndianCurrency(inv.total)}</td>
+                        <td>${escapeHtml(inv.dateFormatted)}</td>
+                        <td class="text-center">
+                            <button type="button" class="btn-action" onclick="previewInvoiceByNumber('${escapeHtml(inv.invoiceNumber)}')">
+                                👁️
+                            </button>
+                        </td>
+                    </tr>
+                `).join('');
+            } else {
+                invBody.innerHTML = '<tr><td colspan="7" class="loading-state">No recent invoices for this product.</td></tr>';
+            }
+        }
+
+        modal.classList.add('active');
+        document.body.style.overflow = 'hidden';
+
+    } catch (e) {
+        console.error('Error opening product modal:', e);
+    } finally {
+        showLoading(false);
+    }
+}
+
+function closeProductModal() {
+    const modal = document.getElementById('productModal');
+    if (modal) {
+        modal.classList.remove('active');
+        document.body.style.overflow = '';
+    }
+}
+
+// Prefill customer and switch to invoice view
+function createInvoiceForCustomer(customerName, area) {
+    closeCustomerModal();
+    closeProductModal();
+    switchView('create-invoice');
+
+    if (shopNameInput) shopNameInput.value = customerName;
+    if (areaInput) areaInput.value = area || '';
+
+    loadCustomerRecommendations(customerName);
+    if (productNameInput) productNameInput.focus();
+
+    showToast(`Loaded customer: ${customerName}`, 'info', 2500);
+}
+
+// Add recommended product directly into invoice form
+function addRecommendedProductDirect(name, price) {
+    closeCustomerModal();
+    switchView('create-invoice');
+
+    if (productNameInput) productNameInput.value = name;
+    if (priceInput) priceInput.value = price > 0 ? price : '';
+    if (quantityInput) {
+        quantityInput.value = 1;
+        quantityInput.focus();
+    }
+    updateLiveTotal();
+    showToast(`Selected: ${name}`, 'info', 1800);
+}
+
+// Universal Invoice Preview & Print for any saved invoice
+async function previewInvoiceByNumber(invoiceNumber, autoPrint = false) {
+    showLoading(true);
+    try {
+        const res = await fetch(`/api/invoices/${encodeURIComponent(invoiceNumber)}`);
+        const data = await res.json();
+        if (!data.success || !data.invoice) {
+            showToast('Invoice details not found', 'error');
+            return;
+        }
+
+        const inv = data.invoice;
+        const invoiceData = {
+            customer: {
+                shopName: inv.customerName,
+                area: inv.area
+            },
+            products: inv.products || [],
+            invoiceNumber: inv.invoiceNumber,
+            date: inv.dateFormatted || inv.date,
+            total: inv.totalAmount,
+            invoiceType: inv.invoiceType
+        };
+
+        currentInvoiceData = invoiceData;
+        currentHistoryData = {};
+        currentExcelDownloadUrl = inv.downloadUrl;
+
+        displayInvoiceModal(invoiceData, {}, inv.downloadUrl);
+
+        if (autoPrint) {
+            setTimeout(() => {
+                printInvoice();
+            }, 300);
+        }
+
+    } catch (e) {
+        console.error('Error in previewInvoiceByNumber:', e);
+        showToast('Error loading invoice preview', 'error');
+    } finally {
+        showLoading(false);
+    }
+}
+
+/* ==========================================================================
+   RESET ALL BUSINESS DATA CONTROLLER
+   ========================================================================== */
+
+function initResetModal() {
+    const btnOpen = document.getElementById('btnOpenResetModal');
+    const modal = document.getElementById('resetDataModal');
+    const overlay = document.getElementById('resetModalOverlay');
+    const btnClose = document.getElementById('btnCloseResetModal');
+    const btnCancel = document.getElementById('btnCancelReset');
+    const confirmInput = document.getElementById('confirmDeleteInput');
+    const btnConfirm = document.getElementById('btnConfirmDelete');
+
+    if (!modal) return;
+
+    if (btnOpen) {
+        btnOpen.addEventListener('click', openResetModal);
+    }
+    if (btnClose) btnClose.addEventListener('click', closeResetModal);
+    if (btnCancel) btnCancel.addEventListener('click', closeResetModal);
+    if (overlay) overlay.addEventListener('click', closeResetModal);
+
+    if (confirmInput && btnConfirm) {
+        confirmInput.addEventListener('input', function() {
+            const val = this.value.trim();
+            if (val === 'DELETE ALL DATA') {
+                btnConfirm.disabled = false;
+            } else {
+                btnConfirm.disabled = true;
+            }
+        });
+        
+        confirmInput.addEventListener('keypress', function(e) {
+            if (e.key === 'Enter' && !btnConfirm.disabled) {
+                executeResetAllData();
+            }
+        });
+
+        btnConfirm.addEventListener('click', executeResetAllData);
+    }
+}
+
+async function openResetModal() {
+    const modal = document.getElementById('resetDataModal');
+    const input = document.getElementById('confirmDeleteInput');
+    const btnConfirm = document.getElementById('btnConfirmDelete');
+
+    if (!modal) return;
+
+    if (input) input.value = '';
+    if (btnConfirm) {
+        btnConfirm.disabled = true;
+        btnConfirm.textContent = '🗑️ Permanently Delete All Data';
+    }
+
+    // Fetch dynamic preview stats
+    try {
+        const res = await fetch('/api/admin/reset-preview');
+        const data = await res.json();
+        if (data.success && data.preview) {
+            const p = data.preview;
+            const elInv = document.getElementById('dspInvoicesCount');
+            const elCust = document.getElementById('dspCustomersCount');
+            const elProd = document.getElementById('dspProductsCount');
+            const elFold = document.getElementById('dspFoldersCount');
+
+            if (elInv) elInv.textContent = p.invoicesCount || 0;
+            if (elCust) elCust.textContent = p.customersCount || 0;
+            if (elProd) elProd.textContent = p.productsCount || 0;
+            if (elFold) elFold.textContent = p.foldersCount || 0;
+        }
+    } catch (e) {
+        console.error('Error fetching reset preview:', e);
+    }
+
+    modal.style.display = 'flex';
+    document.body.style.overflow = 'hidden';
+    if (input) setTimeout(() => input.focus(), 150);
+}
+
+function closeResetModal() {
+    const modal = document.getElementById('resetDataModal');
+    if (modal) {
+        modal.style.display = 'none';
+        document.body.style.overflow = '';
+    }
+}
+
+async function executeResetAllData() {
+    const input = document.getElementById('confirmDeleteInput');
+    const btnConfirm = document.getElementById('btnConfirmDelete');
+
+    if (!input || input.value.trim() !== 'DELETE ALL DATA') {
+        showToast('Please type DELETE ALL DATA to confirm', 'warning');
+        return;
+    }
+
+    if (btnConfirm) {
+        btnConfirm.disabled = true;
+        btnConfirm.textContent = '⏳ Wiping All Business Data...';
+    }
+
+    try {
+        const res = await fetch('/api/admin/reset-all-data', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                confirmation: 'DELETE ALL DATA'
+            })
+        });
+
+        const data = await res.json();
+
+        if (data.success) {
+            // 1. Wipe local browser draft data
+            try {
+                localStorage.clear();
+                sessionStorage.clear();
+            } catch (storageErr) {
+                console.warn('Storage clear error:', storageErr);
+            }
+
+            // 2. Clear current form inputs and state
+            products = [];
+            updateProductsList();
+            updateTotal();
+            if (shopNameInput) shopNameInput.value = '';
+            if (areaInput) areaInput.value = '';
+            if (productNameInput) productNameInput.value = '';
+            if (quantityInput) quantityInput.value = '';
+            if (priceInput) priceInput.value = '';
+            const recSection = document.getElementById('recommendationsSection');
+            if (recSection) recSection.style.display = 'none';
+            const insightsSection = document.getElementById('insightsSection');
+            if (insightsSection) insightsSection.style.display = 'none';
+
+            // 3. Close Reset Modal
+            closeResetModal();
+
+            // 4. Show prominent success notification
+            showToast('All business data permanently deleted! Ready for a clean start.', 'success', 5000);
+            showStatus('System reset successfully. All invoices, customers, and recommendations have been cleared.', 'success');
+
+            // 5. Navigate to Dashboard and reload clean zero data
+            switchView('dashboard');
+            loadDashboard('30d');
+
+        } else {
+            throw new Error(data.error || 'Failed to reset business data');
+        }
+
+    } catch (err) {
+        console.error('Error executing reset:', err);
+        showToast('Error resetting data: ' + err.message, 'error');
+        if (btnConfirm) {
+            btnConfirm.disabled = false;
+            btnConfirm.textContent = '🗑️ Permanently Delete All Data';
+        }
+    }
+}
+
+// ========================================================
+// SAFE DELETION CONTROLLERS & BULK ACTIONS
+// ========================================================
+
+// State tracking for deletion dialogs
+let pendingDeleteInvoiceNumber = null;
+let pendingBulkInvoiceNumbers = [];
+let pendingDeleteCustomerName = null;
+let pendingDeleteProductName = null;
+
+// --- Event Delegation for Dynamic Invoices Table ---
+function setupInvoicesTableDelegation() {
+    const table = document.getElementById('invoicesFullTable');
+    if (!table || table.dataset.delegationAttached === 'true') return;
+    table.dataset.delegationAttached = 'true';
+
+    // 1. Delegated Change for checkboxes
+    table.addEventListener('change', function(e) {
+        if (e.target && (e.target.classList.contains('invoice-row-checkbox') || e.target.classList.contains('invoice-checkbox'))) {
+            if (e.target.id === 'selectAllInvoices') {
+                handleSelectAllInvoices(e);
+            } else {
+                updateInvoicesBulkBar();
+            }
+        }
+    });
+
+    // 2. Delegated Click for delete buttons
+    table.addEventListener('click', function(e) {
+        const deleteBtn = e.target.closest('.action-delete, [data-action="delete-invoice"]');
+        if (deleteBtn) {
+            e.preventDefault();
+            e.stopPropagation();
+            const invNumber = (deleteBtn.getAttribute('data-invoice-number') || deleteBtn.getAttribute('data-id') || deleteBtn.getAttribute('data-invoice-id') || '').trim();
+            const customer = deleteBtn.getAttribute('data-customer');
+            const date = deleteBtn.getAttribute('data-date');
+            const amount = parseFloat(deleteBtn.getAttribute('data-amount')) || 0;
+            if (invNumber) {
+                openDeleteInvoiceModal(invNumber, customer, date, amount);
+            }
+        }
+    });
+}
+
+function setupRecentInvoicesDelegation() {
+    const tbody = document.getElementById('dashRecentInvoicesBody');
+    if (!tbody || tbody.dataset.delegationAttached === 'true') return;
+    tbody.dataset.delegationAttached = 'true';
+
+    tbody.addEventListener('click', function(e) {
+        const deleteBtn = e.target.closest('.action-delete, [data-action="delete-invoice"]');
+        if (deleteBtn) {
+            e.preventDefault();
+            e.stopPropagation();
+            const invNumber = (deleteBtn.getAttribute('data-invoice-number') || deleteBtn.getAttribute('data-id') || '').trim();
+            const customer = deleteBtn.getAttribute('data-customer');
+            const date = deleteBtn.getAttribute('data-date');
+            const amount = parseFloat(deleteBtn.getAttribute('data-amount')) || 0;
+            if (invNumber) {
+                openDeleteInvoiceModal(invNumber, customer, date, amount);
+            }
+        }
+    });
+}
+
+// --- Invoices Selection & Bulk Action Bar ---
+function updateInvoicesBulkBar() {
+    const checkboxes = document.querySelectorAll('.invoice-row-checkbox:checked');
+    const allCheckboxes = document.querySelectorAll('.invoice-row-checkbox');
+    const bar = document.getElementById('invoicesBulkBar');
+    const countEl = document.getElementById('bulkSelectedCount');
+    const amountEl = document.getElementById('bulkSelectedAmount') || document.getElementById('bulkSelectedTotal');
+    const selectAll = document.getElementById('selectAllInvoices');
+
+    const count = checkboxes.length;
+    if (count > 0) {
+        let total = 0;
+        checkboxes.forEach(cb => {
+            const amt = parseFloat(cb.getAttribute('data-amount')) || 0;
+            total += amt;
+        });
+
+        if (bar) bar.style.display = 'flex';
+        // HTML is: <strong id="bulkSelectedCount">0</strong> selected (<strong id="bulkSelectedAmount">₹0.00</strong>)
+        // Setting count directly avoids "2 invoices selected selected"
+        if (countEl) countEl.textContent = count;
+        if (amountEl) amountEl.textContent = `₹${formatIndianCurrency(total)}`;
+    } else {
+        if (bar) bar.style.display = 'none';
+        if (countEl) countEl.textContent = '0';
+        if (amountEl) amountEl.textContent = '₹0.00';
+    }
+
+    if (selectAll) {
+        selectAll.checked = allCheckboxes.length > 0 && count === allCheckboxes.length;
+        selectAll.indeterminate = count > 0 && count < allCheckboxes.length;
+    }
+}
+
+function handleSelectAllInvoices(e) {
+    const isChecked = e.target.checked;
+    const checkboxes = document.querySelectorAll('.invoice-row-checkbox');
+    checkboxes.forEach(cb => {
+        cb.checked = isChecked;
+    });
+    updateInvoicesBulkBar();
+}
+
+function getSelectedInvoiceNumbers() {
+    const checkboxes = document.querySelectorAll('.invoice-row-checkbox:checked');
+    const ids = [];
+    checkboxes.forEach(cb => {
+        const val = (cb.value || cb.getAttribute('data-id') || cb.getAttribute('data-invoice-id') || '').trim();
+        if (val && !ids.includes(val)) {
+            ids.push(val);
+        }
+    });
+    return ids;
+}
+
+// --- 1. Single Invoice Deletion ---
+async function openDeleteInvoiceModal(invNumber, customer, date, amount) {
+    if (!invNumber) return;
+    const cleanNum = String(invNumber).trim();
+    if (!cleanNum) return;
+
+    pendingDeleteInvoiceNumber = cleanNum;
+
+    const modal = document.getElementById('deleteInvoiceModal');
+    const numEl = document.getElementById('delInvNumber');
+    const custEl = document.getElementById('delInvCustomer');
+    const dateEl = document.getElementById('delInvDate');
+    const amtEl = document.getElementById('delInvAmount');
+
+    if (numEl) numEl.textContent = cleanNum;
+    if (custEl) custEl.textContent = customer || 'Loading...';
+    if (dateEl) dateEl.textContent = date || 'Loading...';
+    if (amtEl) amtEl.textContent = (typeof amount === 'number' && !isNaN(amount)) ? `₹${formatIndianCurrency(amount)}` : (amount || 'Loading...');
+
+    if (modal) modal.style.display = 'flex';
+
+    // If details were not provided, fetch invoice info from backend
+    if (!customer || !amount || customer === 'Loading...') {
+        try {
+            const res = await fetch(`/api/invoices/${encodeURIComponent(cleanNum)}`);
+            const data = await res.json();
+            if (data.success && data.invoice) {
+                const inv = data.invoice;
+                if (custEl) custEl.textContent = inv.customerName || '-';
+                if (dateEl) dateEl.textContent = inv.dateFormatted || inv.date || '-';
+                if (amtEl) amtEl.textContent = `₹${formatIndianCurrency(inv.totalAmount || 0)}`;
+            }
+        } catch (e) {
+            console.warn('Could not load invoice detail for deletion modal:', e);
+        }
+    }
+}
+
+function closeDeleteInvoiceModal() {
+    const modal = document.getElementById('deleteInvoiceModal');
+    if (modal) modal.style.display = 'none';
+    pendingDeleteInvoiceNumber = null;
+}
+
+async function executeDeleteInvoice() {
+    if (!pendingDeleteInvoiceNumber) return;
+
+    const btnConfirm = document.getElementById('btnConfirmDeleteInvoice');
+    const originalText = btnConfirm ? btnConfirm.textContent : '🗑️ Delete Invoice';
+    if (btnConfirm) {
+        btnConfirm.disabled = true;
+        btnConfirm.textContent = 'Deleting...';
+    }
+
+    try {
+        const invToDelete = pendingDeleteInvoiceNumber;
+        const res = await fetch(`/api/invoices/${encodeURIComponent(invToDelete)}`, {
+            method: 'DELETE'
+        });
+        const data = await res.json();
+
+        if (data.success) {
+            closeDeleteInvoiceModal();
+            showToast(`Invoice ${invToDelete} deleted successfully.`, 'success');
+            
+            // Immediately remove the invoice row from the table DOM
+            const row = document.querySelector(`tr[data-invoice-number="${invToDelete}"]`) || document.getElementById(`invoice-row-${invToDelete}`) || document.getElementById(`dash-invoice-row-${invToDelete}`);
+            if (row) {
+                row.remove();
+            }
+
+            // Update bulk bar & counts
+            updateInvoicesBulkBar();
+
+            // Refresh UI tables, badges, statistics and recommendations
+            await updateAppBadges();
+            await loadInvoicesTable();
+            await loadCustomersTable();
+            await loadProductsTable();
+            await loadDashboard('30d');
+            if (shopNameInput && shopNameInput.value.trim()) {
+                loadCustomerRecommendations(shopNameInput.value.trim(), true);
+            }
+        } else {
+            showToast(data.error || 'Failed to delete invoice.', 'error');
+        }
+    } catch (err) {
+        console.error('Error deleting invoice:', err);
+        showToast('Error deleting invoice: ' + err.message, 'error');
+    } finally {
+        if (btnConfirm) {
+            btnConfirm.disabled = false;
+            btnConfirm.textContent = originalText;
+        }
+    }
+}
+
+// --- 2. Bulk Invoice Deletion ---
+function openBulkDeleteModal() {
+    const selected = getSelectedInvoiceNumbers();
+    if (!selected.length) {
+        showToast('Please select at least one invoice to delete.', 'warning');
+        return;
+    }
+
+    pendingBulkInvoiceNumbers = selected;
+    let totalAmt = 0;
+    document.querySelectorAll('.invoice-row-checkbox:checked').forEach(cb => {
+        totalAmt += parseFloat(cb.getAttribute('data-amount')) || 0;
+    });
+
+    const modal = document.getElementById('bulkDeleteInvoicesModal');
+    const countEl = document.getElementById('bulkDelCount');
+    const totalEl = document.getElementById('bulkDelTotal');
+
+    if (countEl) countEl.textContent = selected.length;
+    if (totalEl) totalEl.textContent = `₹${formatIndianCurrency(totalAmt)}`;
+    if (modal) modal.style.display = 'flex';
+}
+
+function closeBulkDeleteModal() {
+    const modal = document.getElementById('bulkDeleteInvoicesModal');
+    if (modal) modal.style.display = 'none';
+    pendingBulkInvoiceNumbers = [];
+}
+
+async function executeBulkDeleteInvoices() {
+    if (!pendingBulkInvoiceNumbers.length) return;
+
+    const btnConfirm = document.getElementById('btnConfirmBulkDelete');
+    const originalText = btnConfirm ? btnConfirm.textContent : '🗑️ Delete Selected Invoices';
+    if (btnConfirm) {
+        btnConfirm.disabled = true;
+        btnConfirm.textContent = 'Deleting Invoices...';
+    }
+
+    try {
+        const payload = {
+            invoiceIds: pendingBulkInvoiceNumbers,
+            invoice_numbers: pendingBulkInvoiceNumbers
+        };
+
+        const res = await fetch('/api/invoices/bulk-delete', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+        const data = await res.json();
+
+        if (data.success) {
+            const deletedList = data.deletedInvoices || pendingBulkInvoiceNumbers;
+            const deletedCount = data.deletedCount || data.deleted_count || deletedList.length;
+            closeBulkDeleteModal();
+            showToast(`Successfully deleted ${deletedCount} invoice(s).`, 'success');
+
+            // Immediately remove rows from table DOM
+            deletedList.forEach(num => {
+                const row = document.querySelector(`tr[data-invoice-number="${num}"]`) || document.getElementById(`invoice-row-${num}`) || document.getElementById(`dash-invoice-row-${num}`);
+                if (row) {
+                    row.remove();
+                }
+            });
+
+            // Reset selection and refresh
+            pendingBulkInvoiceNumbers = [];
+            const selectAll = document.getElementById('selectAllInvoices');
+            if (selectAll) selectAll.checked = false;
+            updateInvoicesBulkBar();
+
+            // Refresh UI tables, badges, statistics and recommendations
+            await updateAppBadges();
+            await loadInvoicesTable();
+            await loadCustomersTable();
+            await loadProductsTable();
+            await loadDashboard('30d');
+            if (shopNameInput && shopNameInput.value.trim()) {
+                loadCustomerRecommendations(shopNameInput.value.trim(), true);
+            }
+        } else {
+            showToast(data.error || 'Failed to delete selected invoices.', 'error');
+        }
+    } catch (err) {
+        console.error('Error in bulk invoice deletion:', err);
+        showToast('Error deleting invoices: ' + err.message, 'error');
+    } finally {
+        if (btnConfirm) {
+            btnConfirm.disabled = false;
+            btnConfirm.textContent = originalText;
+        }
+    }
+}
+
+// --- 3. Customer Deletion (Two Choices) ---
+async function openDeleteCustomerModal(customerName) {
+    if (!customerName) return;
+    pendingDeleteCustomerName = customerName;
+
+    const modal = document.getElementById('deleteCustomerModal');
+    const titleNameEl = document.getElementById('delCustTitleName');
+    const nameEl = document.getElementById('delCustName');
+    const targetMatchEl = document.getElementById('targetCustNameMatch');
+    const inputConfirm = document.getElementById('confirmCustomerNameInput');
+    const radioCatalog = document.getElementById('custDeleteModeCatalog');
+
+    if (titleNameEl) titleNameEl.textContent = customerName;
+    if (nameEl) nameEl.textContent = customerName;
+    if (targetMatchEl) targetMatchEl.textContent = customerName;
+    if (inputConfirm) inputConfirm.value = '';
+    if (radioCatalog) radioCatalog.checked = true;
+
+    updateCustomerDeleteChoiceUI();
+    if (modal) modal.style.display = 'flex';
+
+    // Fetch customer deletion preview
+    try {
+        const res = await fetch(`/api/customers/${encodeURIComponent(customerName)}/delete-preview`);
+        const data = await res.json();
+        if (data.success) {
+            const countEl = document.getElementById('delCustInvoiceCount');
+            const spendEl = document.getElementById('delCustTotalSpend');
+            const folderInvsEl = document.getElementById('delCustFolderInvsCount');
+            const folderPreviewEl = document.getElementById('delCustFolderPreview');
+
+            if (countEl) countEl.textContent = data.invoice_count || 0;
+            if (spendEl) spendEl.textContent = `₹${formatIndianCurrency(data.total_spent || 0)}`;
+            if (folderInvsEl) folderInvsEl.textContent = data.invoice_count || 0;
+            if (folderPreviewEl) folderPreviewEl.textContent = data.customer_folder || `Invoice Storage/${customerName}`;
+        }
+    } catch (err) {
+        console.warn('Could not load customer delete preview:', err);
+    }
+}
+
+function updateCustomerDeleteChoiceUI() {
+    const isPermanent = document.getElementById('custDeleteModePermanent')?.checked;
+    const card1 = document.getElementById('custChoice1Card');
+    const card2 = document.getElementById('custChoice2Card');
+    const confirmBox = document.getElementById('custPermanentConfirmBox');
+    const btnConfirm = document.getElementById('btnConfirmDeleteCustomer');
+
+    if (card1 && card2) {
+        if (isPermanent) {
+            card1.classList.remove('active');
+            card2.classList.add('active');
+            if (confirmBox) confirmBox.style.display = 'block';
+            if (btnConfirm) btnConfirm.textContent = '🗑️ Permanently Delete Customer';
+        } else {
+            card1.classList.add('active');
+            card2.classList.remove('active');
+            if (confirmBox) confirmBox.style.display = 'none';
+            if (btnConfirm) btnConfirm.textContent = 'Remove from Suggestions';
+        }
+    }
+}
+
+function closeDeleteCustomerModal() {
+    const modal = document.getElementById('deleteCustomerModal');
+    if (modal) modal.style.display = 'none';
+    pendingDeleteCustomerName = null;
+}
+
+async function executeDeleteCustomer() {
+    if (!pendingDeleteCustomerName) return;
+
+    const isPermanent = document.getElementById('custDeleteModePermanent')?.checked;
+    const customerName = pendingDeleteCustomerName;
+
+    if (isPermanent) {
+        const inputVal = document.getElementById('confirmCustomerNameInput')?.value.trim() || '';
+        if (inputVal !== customerName) {
+            showToast(`Customer name does not match. Please type "${customerName}" exactly to confirm.`, 'error');
+            return;
+        }
+    }
+
+    const btnConfirm = document.getElementById('btnConfirmDeleteCustomer');
+    if (btnConfirm) {
+        btnConfirm.disabled = true;
+        btnConfirm.textContent = 'Processing...';
+    }
+
+    try {
+        const endpoint = isPermanent
+            ? `/api/customers/${encodeURIComponent(customerName)}/all-data`
+            : `/api/customers/${encodeURIComponent(customerName)}`;
+
+        const fetchOptions = {
+            method: 'DELETE',
+            headers: { 'Content-Type': 'application/json' }
+        };
+        if (isPermanent) {
+            fetchOptions.body = JSON.stringify({ confirmation: customerName });
+        }
+
+        const res = await fetch(endpoint, fetchOptions);
+        const data = await res.json();
+
+        if (data.success) {
+            closeDeleteCustomerModal();
+            closeCustomerModal(); // In case detail drawer was open
+            showToast(data.message || `Customer "${customerName}" deleted successfully.`, 'success');
+
+            updateAppBadges();
+            loadCustomersTable();
+            if (isPermanent) {
+                loadInvoicesTable();
+                loadProductsTable();
+                loadDashboard('30d');
+            }
+        } else {
+            showToast(data.error || 'Failed to delete customer.', 'error');
+        }
+    } catch (err) {
+        console.error('Error deleting customer:', err);
+        showToast('Error deleting customer: ' + err.message, 'error');
+    } finally {
+        if (btnConfirm) {
+            btnConfirm.disabled = false;
+            updateCustomerDeleteChoiceUI();
+        }
+    }
+}
+
+// --- 4. Product Deletion (Two Choices) ---
+async function openDeleteProductModal(productName) {
+    if (!productName) return;
+    pendingDeleteProductName = productName;
+
+    const modal = document.getElementById('deleteProductModal');
+    const titleNameEl = document.getElementById('delProdTitleName');
+    const nameEl = document.getElementById('delProdName');
+    const inputConfirm = document.getElementById('confirmProdDeleteInput');
+    const radioCatalog = document.getElementById('prodDeleteModeCatalog');
+
+    if (titleNameEl) titleNameEl.textContent = productName;
+    if (nameEl) nameEl.textContent = productName;
+    if (inputConfirm) inputConfirm.value = '';
+    if (radioCatalog) radioCatalog.checked = true;
+
+    updateProductDeleteChoiceUI();
+    if (modal) modal.style.display = 'flex';
+
+    // Fetch product deletion preview
+    try {
+        const res = await fetch(`/api/products/${encodeURIComponent(productName)}/delete-preview`);
+        const data = await res.json();
+        if (data.success) {
+            const countEl = document.getElementById('delProdInvCount');
+            const qtyEl = document.getElementById('delProdQty');
+            const salesEl = document.getElementById('delProdSales');
+            const affectedList = document.getElementById('prodAffectedInvoicesList');
+
+            if (countEl) countEl.textContent = data.affected_invoices_count || 0;
+            if (qtyEl) qtyEl.textContent = data.total_quantity_sold || 0;
+            if (salesEl) salesEl.textContent = `₹${formatIndianCurrency(data.total_sales || 0)}`;
+
+            if (affectedList) {
+                const invs = data.affected_invoices || [];
+                if (invs.length) {
+                    affectedList.innerHTML = invs.slice(0, 5).map(inv => `
+                        <div class="aip-item">
+                            <span class="aip-inv-num">${escapeHtml(inv.invoice_number)}</span>
+                            <span class="aip-inv-cust">${escapeHtml(inv.customer_name)}</span>
+                            <span class="aip-inv-total">₹${formatIndianCurrency(inv.line_total || 0)}</span>
+                        </div>
+                    `).join('') + (invs.length > 5 ? `<div style="font-size:0.75rem; color:#64748B; padding:4px 8px;">+ ${invs.length - 5} more invoice(s)</div>` : '');
+                } else {
+                    affectedList.innerHTML = '<div style="font-size:0.75rem; color:#64748B; padding:4px 8px;">No historical invoices contain this product.</div>';
+                }
+            }
+        }
+    } catch (err) {
+        console.warn('Could not load product delete preview:', err);
+    }
+}
+
+function updateProductDeleteChoiceUI() {
+    const isPermanent = document.getElementById('prodDeleteModePermanent')?.checked;
+    const card1 = document.getElementById('prodChoice1Card');
+    const card2 = document.getElementById('prodChoice2Card');
+    const confirmBox = document.getElementById('prodPermanentConfirmBox');
+    const btnConfirm = document.getElementById('btnConfirmDeleteProduct');
+
+    if (card1 && card2) {
+        if (isPermanent) {
+            card1.classList.remove('active');
+            card2.classList.add('active');
+            if (confirmBox) confirmBox.style.display = 'block';
+            if (btnConfirm) btnConfirm.textContent = '🗑️ Permanently Delete Product Data';
+        } else {
+            card1.classList.add('active');
+            card2.classList.remove('active');
+            if (confirmBox) confirmBox.style.display = 'none';
+            if (btnConfirm) btnConfirm.textContent = 'Remove from Autocomplete';
+        }
+    }
+}
+
+function closeDeleteProductModal() {
+    const modal = document.getElementById('deleteProductModal');
+    if (modal) modal.style.display = 'none';
+    pendingDeleteProductName = null;
+}
+
+async function executeDeleteProduct() {
+    if (!pendingDeleteProductName) return;
+
+    const isPermanent = document.getElementById('prodDeleteModePermanent')?.checked;
+    const productName = pendingDeleteProductName;
+
+    if (isPermanent) {
+        const inputVal = document.getElementById('confirmProdDeleteInput')?.value.trim().toUpperCase() || '';
+        if (inputVal !== 'DELETE PRODUCT DATA') {
+            showToast('Please type "DELETE PRODUCT DATA" to confirm.', 'error');
+            return;
+        }
+    }
+
+    const btnConfirm = document.getElementById('btnConfirmDeleteProduct');
+    if (btnConfirm) {
+        btnConfirm.disabled = true;
+        btnConfirm.textContent = 'Processing...';
+    }
+
+    try {
+        const endpoint = isPermanent
+            ? `/api/products/${encodeURIComponent(productName)}/all-data`
+            : `/api/products/${encodeURIComponent(productName)}`;
+
+        const fetchOptions = {
+            method: 'DELETE',
+            headers: { 'Content-Type': 'application/json' }
+        };
+        if (isPermanent) {
+            fetchOptions.body = JSON.stringify({ confirmation: 'DELETE PRODUCT DATA' });
+        }
+
+        const res = await fetch(endpoint, fetchOptions);
+        const data = await res.json();
+
+        if (data.success) {
+            closeDeleteProductModal();
+            closeProductModal(); // In case drawer was open
+            showToast(data.message || `Product "${productName}" deleted successfully.`, 'success');
+
+            updateAppBadges();
+            loadProductsTable();
+            if (isPermanent) {
+                loadInvoicesTable();
+                loadCustomersTable();
+                loadDashboard('30d');
+            }
+        } else {
+            showToast(data.error || 'Failed to delete product.', 'error');
+        }
+    } catch (err) {
+        console.error('Error deleting product:', err);
+        showToast('Error deleting product: ' + err.message, 'error');
+    } finally {
+        if (btnConfirm) {
+            btnConfirm.disabled = false;
+            updateProductDeleteChoiceUI();
+        }
+    }
+}
+
+// Helper to update sidebar badge counters
+async function updateAppBadges() {
+    try {
+        const res = await fetch('/api/dashboard?range=all');
+        const data = await res.json();
+        if (data.success && data.metrics) {
+            const bInv = document.getElementById('badgeInvoiceCount');
+            const bCust = document.getElementById('badgeCustomerCount');
+            const bProd = document.getElementById('badgeProductCount');
+            if (bInv) bInv.textContent = data.metrics.totalInvoices || 0;
+            if (bCust) bCust.textContent = data.metrics.totalCustomers || 0;
+            if (bProd) bProd.textContent = data.metrics.totalProducts || 0;
+        }
+    } catch (e) {
+        console.warn('Could not update sidebar badges:', e);
+    }
+}
+
+// Master Delete Modals Initializer
+function initDeleteModals() {
+    // 1. Single Invoice Modal Listeners
+    const btnCancelDelInv = document.getElementById('btnCancelDeleteInvoice');
+    const btnCloseDelInv = document.getElementById('btnCloseDeleteInvoiceModal');
+    const overlayDelInv = document.getElementById('deleteInvoiceModalOverlay');
+    const btnConfirmDelInv = document.getElementById('btnConfirmDeleteInvoice');
+
+    if (btnCancelDelInv) btnCancelDelInv.addEventListener('click', closeDeleteInvoiceModal);
+    if (btnCloseDelInv) btnCloseDelInv.addEventListener('click', closeDeleteInvoiceModal);
+    if (overlayDelInv) overlayDelInv.addEventListener('click', closeDeleteInvoiceModal);
+    if (btnConfirmDelInv) btnConfirmDelInv.addEventListener('click', executeDeleteInvoice);
+
+    // 2. Bulk Invoices Modal & Selection Listeners
+    const selectAllInv = document.getElementById('selectAllInvoices');
+    if (selectAllInv) selectAllInv.addEventListener('change', handleSelectAllInvoices);
+
+    const btnOpenBulkDel = document.getElementById('btnOpenBulkDeleteModal') || document.getElementById('btnBulkDeleteInvoices');
+    if (btnOpenBulkDel) btnOpenBulkDel.addEventListener('click', openBulkDeleteModal);
+
+    const btnCancelBulkSelect = document.getElementById('btnCancelBulkSelection');
+    if (btnCancelBulkSelect) {
+        btnCancelBulkSelect.addEventListener('click', () => {
+            const checkboxes = document.querySelectorAll('.invoice-row-checkbox');
+            checkboxes.forEach(cb => { cb.checked = false; });
+            const selectAll = document.getElementById('selectAllInvoices');
+            if (selectAll) selectAll.checked = false;
+            updateInvoicesBulkBar();
+        });
+    }
+
+    const btnCancelBulk = document.getElementById('btnCancelBulkDelete');
+    const btnCloseBulk = document.getElementById('btnCloseBulkDeleteModal');
+    const overlayBulk = document.getElementById('bulkDeleteInvoicesOverlay');
+    const btnConfirmBulk = document.getElementById('btnConfirmBulkDelete');
+
+    if (btnCancelBulk) btnCancelBulk.addEventListener('click', closeBulkDeleteModal);
+    if (btnCloseBulk) btnCloseBulk.addEventListener('click', closeBulkDeleteModal);
+    if (overlayBulk) overlayBulk.addEventListener('click', closeBulkDeleteModal);
+    if (btnConfirmBulk) btnConfirmBulk.addEventListener('click', executeBulkDeleteInvoices);
+
+    // Attach dynamic table event delegations
+    setupInvoicesTableDelegation();
+    setupRecentInvoicesDelegation();
+
+    // 3. Customer Delete Modal Listeners
+    const btnCancelDelCust = document.getElementById('btnCancelDeleteCustomer');
+    const btnCloseDelCust = document.getElementById('btnCloseDeleteCustomerModal');
+    const overlayDelCust = document.getElementById('deleteCustomerModalOverlay');
+    const btnConfirmDelCust = document.getElementById('btnConfirmDeleteCustomer');
+    const radioCustCatalog = document.getElementById('custDeleteModeCatalog');
+    const radioCustPerm = document.getElementById('custDeleteModePermanent');
+
+    if (btnCancelDelCust) btnCancelDelCust.addEventListener('click', closeDeleteCustomerModal);
+    if (btnCloseDelCust) btnCloseDelCust.addEventListener('click', closeDeleteCustomerModal);
+    if (overlayDelCust) overlayDelCust.addEventListener('click', closeDeleteCustomerModal);
+    if (btnConfirmDelCust) btnConfirmDelCust.addEventListener('click', executeDeleteCustomer);
+    if (radioCustCatalog) radioCustCatalog.addEventListener('change', updateCustomerDeleteChoiceUI);
+    if (radioCustPerm) radioCustPerm.addEventListener('change', updateCustomerDeleteChoiceUI);
+
+    // 4. Product Delete Modal Listeners
+    const btnCancelDelProd = document.getElementById('btnCancelDeleteProduct');
+    const btnCloseDelProd = document.getElementById('btnCloseDeleteProductModal');
+    const overlayDelProd = document.getElementById('deleteProductModalOverlay');
+    const btnConfirmDelProd = document.getElementById('btnConfirmDeleteProduct');
+    const radioProdCatalog = document.getElementById('prodDeleteModeCatalog');
+    const radioProdPerm = document.getElementById('prodDeleteModePermanent');
+
+    if (btnCancelDelProd) btnCancelDelProd.addEventListener('click', closeDeleteProductModal);
+    if (btnCloseDelProd) btnCloseDelProd.addEventListener('click', closeDeleteProductModal);
+    if (overlayDelProd) overlayDelProd.addEventListener('click', closeDeleteProductModal);
+    if (btnConfirmDelProd) btnConfirmDelProd.addEventListener('click', executeDeleteProduct);
+    if (radioProdCatalog) radioProdCatalog.addEventListener('change', updateProductDeleteChoiceUI);
+    if (radioProdPerm) radioProdPerm.addEventListener('change', updateProductDeleteChoiceUI);
+
+    // Expose functions globally for table HTML onclick handlers and console testing
+    window.openDeleteInvoiceModal = openDeleteInvoiceModal;
+    window.closeDeleteInvoiceModal = closeDeleteInvoiceModal;
+    window.executeDeleteInvoice = executeDeleteInvoice;
+    window.openBulkDeleteModal = openBulkDeleteModal;
+    window.closeBulkDeleteModal = closeBulkDeleteModal;
+    window.executeBulkDeleteInvoices = executeBulkDeleteInvoices;
+    window.openDeleteCustomerModal = openDeleteCustomerModal;
+    window.openDeleteProductModal = openDeleteProductModal;
+    window.updateInvoicesBulkBar = updateInvoicesBulkBar;
+    window.getSelectedInvoiceNumbers = getSelectedInvoiceNumbers;
+    window.setupInvoicesTableDelegation = setupInvoicesTableDelegation;
+    window.updateAppBadges = updateAppBadges;
+}

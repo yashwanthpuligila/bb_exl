@@ -11,6 +11,7 @@ import json
 import glob
 from recommendation_engine import recommendation_engine
 import learning_db
+import shutil
 
 # Main Invoice Storage Directory at project root: e:\bb_exl\Invoice Storage
 INVOICE_STORAGE_DIR = (Path(__file__).resolve().parent.parent / "Invoice Storage").resolve()
@@ -85,28 +86,24 @@ def generate_invoice():
         # Create Excel file and get history data
         filename, history_data = create_excel_invoice(customer, products, invoice_number, invoice_type)
         
-        # Immediately record customer and products in learning database
+        # Immediately record customer, products, and full invoice in learning database
         try:
-            learning_db.record_customer(
-                customer.get('shopName', ''),
-                customer.get('area', ''),
-                invoice_number=invoice_number
+            shop_name = customer.get('shopName', '').strip()
+            customer_dir = get_or_create_customer_dir(shop_name)
+            full_path = str(customer_dir / filename)
+            learning_db.record_invoice(
+                invoice_number=invoice_number,
+                customer_name=shop_name,
+                area=customer.get('area', ''),
+                products=products,
+                invoice_type=invoice_type,
+                invoice_date=datetime.now(),
+                total_amount=history_data.get('grand_total') if invoice_type == 'all' else None,
+                file_path=full_path,
+                filename=filename
             )
-            for prod in products:
-                learning_db.record_product(
-                    prod.get('name', ''),
-                    prod.get('price', 0.0),
-                    invoice_number=invoice_number
-                )
-                learning_db.record_customer_purchase(
-                    customer.get('shopName', ''),
-                    prod.get('name', ''),
-                    quantity=prod.get('quantity', 1.0),
-                    price=prod.get('price', 0.0),
-                    invoice_number=invoice_number
-                )
         except Exception as learn_err:
-            print(f"Error learning customer/product: {learn_err}")
+            print(f"Error learning invoice: {learn_err}")
 
         return jsonify({
             'success': True,
@@ -315,10 +312,400 @@ def get_stats():
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
+@app.route('/api/dashboard')
+def get_dashboard():
+    """Get dashboard analytics, metrics, chart data, and recent invoices from real saved invoices"""
+    try:
+        date_range = request.args.get('range', '30d')
+        data = learning_db.get_dashboard_analytics(date_range)
+        return jsonify({
+            'success': True,
+            **data
+        })
+    except Exception as e:
+        print(f"Error getting dashboard data: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/invoices')
+def get_invoices():
+    """Get searchable, filterable, sortable invoices list"""
+    try:
+        q = request.args.get('q', '').strip()
+        customer = request.args.get('customer', '').strip()
+        date_range = request.args.get('range', 'all').strip()
+        type_filter = request.args.get('type', '').strip()
+        sort_by = request.args.get('sort_by', 'date').strip()
+        sort_order = request.args.get('sort_order', 'desc').strip()
+        limit = int(request.args.get('limit', 100))
+        
+        data = learning_db.get_all_invoices(
+            q=q, customer=customer, date_range=date_range,
+            type_filter=type_filter, sort_by=sort_by, sort_order=sort_order,
+            limit=limit
+        )
+        return jsonify({
+            'success': True,
+            **data
+        })
+    except Exception as e:
+        print(f"Error getting invoices: {e}")
+        return jsonify({'error': str(e)}), 500
+
+# Note: GET and DELETE /api/invoices/<invoice_number> are handled by invoice_detail_or_delete_route below
+
+@app.route('/api/customers')
+def get_customers():
+    """Get all customers with aggregate metrics"""
+    try:
+        q = request.args.get('q', '').strip()
+        sort_by = request.args.get('sort_by', 'amount').strip()
+        customers = learning_db.get_customers_overview(q=q, sort_by=sort_by)
+        return jsonify({
+            'success': True,
+            'customers': customers,
+            'totalCount': len(customers)
+        })
+    except Exception as e:
+        print(f"Error getting customers: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/customers/<customer_name>')
+def get_customer_profile_route(customer_name):
+    """Get detailed customer profile with order history and recommendations"""
+    try:
+        profile = learning_db.get_customer_profile(customer_name)
+        if not profile:
+            return jsonify({'error': 'Customer not found'}), 404
+        return jsonify({
+            'success': True,
+            'customer': profile
+        })
+    except Exception as e:
+        print(f"Error getting customer profile: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/products')
+def get_products():
+    """Get all products with aggregate sales and pricing stats"""
+    try:
+        q = request.args.get('q', '').strip()
+        sort_by = request.args.get('sort_by', 'quantity').strip()
+        products = learning_db.get_products_overview(q=q, sort_by=sort_by)
+        return jsonify({
+            'success': True,
+            'products': products,
+            'totalCount': len(products)
+        })
+    except Exception as e:
+        print(f"Error getting products: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/products/<product_name>')
+def get_product_profile_route(product_name):
+    """Get product profile with buyers, price history, and recent sales"""
+    try:
+        profile = learning_db.get_product_profile(product_name)
+        if not profile:
+            return jsonify({'error': 'Product not found'}), 404
+        return jsonify({
+            'success': True,
+            'product': profile
+        })
+    except Exception as e:
+        print(f"Error getting product profile: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/analytics/sales')
+def get_sales_analytics():
+    """Get sales analytics chart data"""
+    try:
+        date_range = request.args.get('range', '30d')
+        data = learning_db.get_dashboard_analytics(date_range)
+        return jsonify({
+            'success': True,
+            'chart': data.get('chart', {})
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/admin/reset-preview')
+def reset_preview():
+    """Get dynamic preview counts of data that will be deleted"""
+    try:
+        preview = learning_db.get_reset_preview(storage_dir=str(INVOICE_STORAGE_DIR))
+        return jsonify({
+            'success': True,
+            'preview': preview
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/admin/reset-all-data', methods=['POST'])
+def reset_all_data():
+    """
+    Permanently delete all generated business data:
+    - All invoices and line items
+    - All customer and product records
+    - All customer-wise invoice folders
+    - All invoice history
+    - All recommendation/training data
+    - All dashboard statistics data
+    - All autocomplete data
+    Strictly preserves source code, HTML, CSS, JS, Python, requirements, docx, templates, and git files.
+    Requires exact confirmation: 'DELETE ALL DATA'
+    """
+    try:
+        data = request.get_json(silent=True) or {}
+        confirmation = (data.get('confirmation') or data.get('confirm') or '').strip()
+        
+        if confirmation != 'DELETE ALL DATA':
+            return jsonify({
+                'error': 'Confirmation text does not match. You must enter "DELETE ALL DATA" to proceed.'
+            }), 400
+            
+        deleted_invoices_count = 0
+        deleted_folders_count = 0
+        
+        # 1. Reset SQLite Database tables (invoices, customers, products, customer_purchases, invoice_items, processed_invoices)
+        learning_db.reset_all_learning_data()
+        
+        # 2. Reset In-Memory Recommendation Engine
+        recommendation_engine.clear_data()
+        
+        # 3. Safely delete contents of INVOICE_STORAGE_DIR using pathlib verification
+        if INVOICE_STORAGE_DIR.exists() and INVOICE_STORAGE_DIR.is_dir():
+            for item in list(INVOICE_STORAGE_DIR.iterdir()):
+                # Strict safety check: must be inside INVOICE_STORAGE_DIR
+                if item.resolve().is_relative_to(INVOICE_STORAGE_DIR):
+                    if item.is_dir():
+                        # Count invoices inside this customer folder
+                        for f in item.glob('*.xlsx'):
+                            deleted_invoices_count += 1
+                        shutil.rmtree(str(item), ignore_errors=True)
+                        deleted_folders_count += 1
+                    elif item.is_file() and item.suffix.lower() == '.xlsx':
+                        item.unlink(missing_ok=True)
+                        deleted_invoices_count += 1
+                        
+        # Ensure clean empty base storage directory exists
+        INVOICE_STORAGE_DIR.mkdir(parents=True, exist_ok=True)
+        
+        # 4. Safely clean up legacy generated invoice files matching pattern Invoice_*.xlsx or INV-*.xlsx
+        # in web directory and project root (strictly preserving code, docx, orders.xlsx, etc.)
+        project_root = INVOICE_STORAGE_DIR.parent.resolve()
+        web_dir = (Path(__file__).resolve().parent).resolve()
+        
+        for dir_path in [web_dir, project_root]:
+            if dir_path.exists() and dir_path.is_dir():
+                for pat in ['INV-*.xlsx', 'Invoice_*.xlsx']:
+                    for f in dir_path.glob(pat):
+                        if f.is_file() and f.resolve().is_relative_to(dir_path):
+                            # Ensure we NEVER delete orders.xlsx or non-invoice files
+                            if f.name.startswith(('INV-', 'Invoice_')) and f.suffix.lower() == '.xlsx':
+                                f.unlink(missing_ok=True)
+                                deleted_invoices_count += 1
+                                
+        # 5. Clean up temporary invoice copies in tempdir
+        temp_dir = Path(tempfile.gettempdir()).resolve()
+        for pat in ['INV-*.xlsx', 'Invoice_*.xlsx']:
+            for f in temp_dir.glob(pat):
+                try:
+                    if f.is_file() and (f.name.startswith(('INV-', 'Invoice_'))):
+                        f.unlink(missing_ok=True)
+                except Exception:
+                    pass
+                    
+        return jsonify({
+            'success': True,
+            'message': 'All business data, customer folders, invoices, and recommendations have been permanently deleted.',
+            'stats': {
+                'invoicesDeleted': deleted_invoices_count,
+                'foldersDeleted': deleted_folders_count,
+                'totalInvoices': 0,
+                'totalCustomers': 0,
+                'totalProducts': 0,
+                'totalSales': 0.0
+            }
+        })
+        
+    except Exception as e:
+        print(f"Error resetting all data: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/invoices/<invoice_number>', methods=['GET', 'DELETE'])
+def invoice_detail_or_delete_route(invoice_number):
+    """GET single invoice details, or DELETE single invoice safely and recalculate metrics"""
+    try:
+        clean_num = str(invoice_number).strip() if invoice_number else ''
+        if not clean_num or '..' in clean_num or '/' in clean_num or '\\' in clean_num:
+            return jsonify({'error': 'Invalid invoice ID format'}), 400
+
+        if request.method == 'GET':
+            inv = learning_db.get_invoice_detail(clean_num)
+            if not inv:
+                return jsonify({'error': f'Invoice {clean_num} not found'}), 404
+            return jsonify({'success': True, 'invoice': inv})
+
+        # DELETE request
+        res = learning_db.delete_invoice_by_number(clean_num, storage_dir=INVOICE_STORAGE_DIR)
+        if not res:
+            return jsonify({'error': f'Invoice {clean_num} not found'}), 404
+            
+        recommendation_engine.rebuild_from_db()
+        return jsonify({
+            'success': True,
+            'deleted': res,
+            'invoiceId': clean_num,
+            'invoiceNumber': clean_num,
+            'message': f'Invoice {clean_num} deleted successfully'
+        })
+    except Exception as e:
+        print(f"Error handling invoice {invoice_number}: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/invoices/bulk-delete', methods=['POST'])
+def bulk_delete_invoices_route():
+    """Delete multiple selected invoices safely"""
+    try:
+        data = request.get_json() or {}
+        raw_ids = data.get('invoiceIds')
+        if raw_ids is None:
+            raw_ids = data.get('invoice_numbers') or data.get('invoice_ids') or []
+            
+        if not raw_ids or not isinstance(raw_ids, list):
+            return jsonify({'error': 'No invoice IDs provided. Please provide an "invoiceIds" array.'}), 400
+
+        valid_ids = []
+        invalid_ids = []
+        for item in raw_ids:
+            if not isinstance(item, (str, int)):
+                invalid_ids.append(str(item))
+                continue
+            cleaned = str(item).strip()
+            # Safety validation against directory traversal and invalid characters
+            if not cleaned or '..' in cleaned or '/' in cleaned or '\\' in cleaned:
+                invalid_ids.append(cleaned if cleaned else '<empty>')
+                continue
+            if cleaned not in valid_ids:
+                valid_ids.append(cleaned)
+
+        if not valid_ids:
+            return jsonify({
+                'error': 'No valid invoice IDs provided',
+                'invalidIds': invalid_ids
+            }), 400
+
+        res = learning_db.bulk_delete_invoices(valid_ids, storage_dir=INVOICE_STORAGE_DIR)
+        recommendation_engine.rebuild_from_db()
+
+        total_failed_count = res.get('failedCount', 0) + len(invalid_ids)
+        all_failed = res.get('failedInvoices', []) + invalid_ids
+
+        return jsonify({
+            'success': True,
+            'message': f"Successfully deleted {res.get('deletedCount', 0)} invoice(s).",
+            'deletedCount': res.get('deletedCount', 0),
+            'deleted_count': res.get('deletedCount', 0),
+            'failedCount': total_failed_count,
+            'totalAmount': res.get('totalAmount', 0.0),
+            'deletedInvoices': res.get('deletedInvoices', []),
+            'failedInvoices': all_failed
+        })
+    except Exception as e:
+        print(f"Error bulk deleting invoices: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/customers/<customer_name>/delete-preview', methods=['GET'])
+def customer_delete_preview_route(customer_name):
+    """Get preview of customer deletion impact"""
+    try:
+        preview = learning_db.get_customer_delete_preview(customer_name, storage_dir=INVOICE_STORAGE_DIR)
+        return jsonify({
+            'success': True,
+            'preview': preview,
+            'invoice_count': preview.get('invoiceCount', 0),
+            'total_spent': preview.get('totalAmount', 0),
+            'has_folder': preview.get('hasFolder', False),
+            'customer_folder': f"Invoice Storage/{preview.get('folderName', customer_name)}" if preview.get('hasFolder') else f"Invoice Storage/{customer_name}",
+            **preview
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/customers/<customer_name>', methods=['DELETE'])
+def remove_customer_route(customer_name):
+    """Mode 1: Remove customer from suggestions/catalog only"""
+    try:
+        res = learning_db.remove_customer_from_catalog(customer_name)
+        recommendation_engine.rebuild_from_db()
+        return jsonify({'success': True, 'mode': 'catalog', 'message': f'Customer "{customer_name}" removed from suggestions.', **res})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/customers/<customer_name>/all-data', methods=['DELETE', 'POST'])
+def delete_customer_all_data_route(customer_name):
+    """Mode 2: Permanently delete customer, all their invoices, and folder"""
+    try:
+        data = request.get_json(silent=True) or {}
+        confirmation = (data.get('confirmation') or request.args.get('confirmation') or '').strip()
+        if not confirmation or learning_db.normalize_text(confirmation) != learning_db.normalize_text(customer_name):
+            return jsonify({'error': f'Confirmation does not match. Please enter "{customer_name}" to confirm.'}), 400
+        res = learning_db.permanently_delete_customer_all_data(customer_name, storage_dir=INVOICE_STORAGE_DIR)
+        recommendation_engine.rebuild_from_db()
+        return jsonify({'success': True, 'mode': 'permanent', 'message': f'Customer "{customer_name}" and all invoice data permanently deleted.', **res})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/products/<product_name>/delete-preview', methods=['GET'])
+def product_delete_preview_route(product_name):
+    """Get preview of product deletion impact and affected invoices"""
+    try:
+        preview = learning_db.get_product_delete_preview(product_name)
+        return jsonify({
+            'success': True,
+            'preview': preview,
+            'affected_invoices_count': preview.get('totalInvoices', 0),
+            'total_quantity_sold': preview.get('totalQuantity', 0),
+            'total_sales': preview.get('totalSales', 0),
+            'affected_invoices': preview.get('affectedInvoices', []),
+            **preview
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/products/<product_name>', methods=['DELETE'])
+def remove_product_route(product_name):
+    """Mode 1: Remove product from catalog/autocomplete only"""
+    try:
+        res = learning_db.remove_product_from_catalog(product_name)
+        recommendation_engine.rebuild_from_db()
+        return jsonify({'success': True, 'mode': 'catalog', 'message': f'Product "{product_name}" removed from autocomplete.', **res})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/products/<product_name>/all-data', methods=['DELETE', 'POST'])
+def delete_product_all_data_route(product_name):
+    """Mode 2: Permanently delete product from catalog and related invoice references"""
+    try:
+        data = request.get_json(silent=True) or {}
+        confirmation = (data.get('confirmation') or request.args.get('confirmation') or '').strip()
+        if confirmation.upper() != "DELETE PRODUCT DATA":
+            return jsonify({'error': 'Confirmation text does not match. You must enter "DELETE PRODUCT DATA" to proceed.'}), 400
+        res = learning_db.permanently_delete_product_all_data(product_name, storage_dir=INVOICE_STORAGE_DIR)
+        recommendation_engine.rebuild_from_db()
+        return jsonify({'success': True, 'mode': 'permanent', 'message': f'Product "{product_name}" and related data permanently deleted.', **res})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+_invoice_counter = 0
+
 def generate_invoice_number():
-    """Generate unique invoice number"""
+    """Generate unique invoice number guaranteed to be distinct even in high frequency."""
+    global _invoice_counter
     now = datetime.now()
-    return f"INV-{now.strftime('%Y%m%d-%H%M%S')}"
+    _invoice_counter = (_invoice_counter + 1) % 1000
+    return f"INV-{now.strftime('%Y%m%d-%H%M%S')}-{_invoice_counter:03d}"
 
 def sanitize_folder_name(name: str) -> str:
     """
@@ -375,6 +762,7 @@ def load_customer_history(customer_dir: Path):
     xlsx_files = sorted(customer_dir.glob("*.xlsx"), key=lambda p: p.stat().st_mtime)
     
     for file_path in xlsx_files:
+        wb = None
         try:
             wb = load_workbook(file_path, data_only=True)
             ws = wb.active
@@ -428,6 +816,12 @@ def load_customer_history(customer_dir: Path):
         except Exception as err:
             print(f"Warning: Could not read history from {file_path.name}: {err}")
             continue
+        finally:
+            if wb:
+                try:
+                    wb.close()
+                except Exception:
+                    pass
             
     return previous_orders
 
@@ -547,12 +941,15 @@ def build_invoice_workbook(customer, products, invoice_number, current_date, inv
     
     current_order_total = 0
     for p in products:
-        p_total = float(p.get('total', 0))
+        p_name = str(p.get('name') or p.get('productName') or '')
+        p_qty = int(p.get('quantity', 0))
+        p_price = float(p.get('price') if p.get('price') is not None else p.get('unitPrice', 0))
+        p_total = float(p.get('total') if p.get('total') is not None else (p_qty * p_price))
         current_order_total += p_total
-        ws.cell(row=row, column=1, value=str(p.get('name', '')))
-        c_qty = ws.cell(row=row, column=2, value=int(p.get('quantity', 0)))
+        ws.cell(row=row, column=1, value=p_name)
+        c_qty = ws.cell(row=row, column=2, value=p_qty)
         c_qty.alignment = Alignment(horizontal='center')
-        c_rate = ws.cell(row=row, column=3, value=float(p.get('price', 0)))
+        c_rate = ws.cell(row=row, column=3, value=p_price)
         c_rate.alignment = Alignment(horizontal='right')
         c_rate.number_format = '"₹"#,##0.00'
         c_amt = ws.cell(row=row, column=4, value=p_total)
@@ -639,6 +1036,7 @@ def create_excel_invoice(customer, products, invoice_number, invoice_type='curre
     # Also copy to tempdir for web download route compatibility
     temp_path = Path(tempfile.gettempdir()) / filename
     wb.save(str(temp_path))
+    wb.close()
     
     order_count = (len(previous_orders) + 1) if (invoice_type == 'all' and previous_orders) else 1
     first_date = previous_orders[0]['date'] if (invoice_type == 'all' and previous_orders) else current_date

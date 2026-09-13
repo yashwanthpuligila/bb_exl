@@ -23,6 +23,50 @@ class ProductRecommendationEngine:
         self.product_popularity = Counter()  # product -> purchase count
         self.customer_history = defaultdict(list)  # customer -> [(product, quantity, price, date)]
         
+    def clear_data(self):
+        """Reset and wipe all in-memory learned customer and product recommendation caches"""
+        self.customer_products.clear()
+        self.product_cooccurrence.clear()
+        self.product_popularity.clear()
+        self.customer_history.clear()
+        print("🧹 Recommendation engine caches cleared.")
+        
+    def rebuild_from_db(self):
+        """Rebuild collaborative filtering caches directly from SQLite database"""
+        self.clear_data()
+        try:
+            import learning_db
+            with learning_db.get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("""
+                    SELECT i.customer_norm, ii.product_display, ii.quantity, ii.price, i.invoice_date, ii.invoice_number
+                    FROM invoice_items ii
+                    JOIN invoices i ON ii.invoice_number = i.invoice_number
+                    ORDER BY i.invoice_date ASC
+                """)
+                rows = cursor.fetchall()
+                
+                inv_products = defaultdict(list)
+                for c_norm, p_name, qty, price, inv_date, inv_num in rows:
+                    clean_prod = " ".join(str(p_name).strip().split())
+                    self.customer_products[c_norm].append(clean_prod)
+                    self.product_popularity[clean_prod] += 1
+                    self.customer_history[c_norm].append((clean_prod, qty, price, inv_date))
+                    inv_products[inv_num].append(clean_prod)
+                
+                # Build co-occurrence matrix from each invoice's products
+                for prods in inv_products.values():
+                    unique_prods = list(set(prods))
+                    if len(unique_prods) >= 2:
+                        for p1, p2 in combinations(unique_prods, 2):
+                            self.product_cooccurrence[p1][p2] += 1
+                            self.product_cooccurrence[p2][p1] += 1
+            print(f"🤖 Recommendation engine re-synced from DB ({len(self.customer_products)} customers, {len(self.product_popularity)} products)")
+            return True
+        except Exception as e:
+            print(f"Error rebuilding recommendations from DB: {e}")
+            return False
+        
     def load_data_from_invoices(self, invoice_directory='.'):
         """Load historical data from all invoice Excel files"""
         try:

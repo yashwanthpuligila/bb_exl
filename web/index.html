@@ -3,260 +3,651 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Invoice Generator - ERP Billing Dashboard</title>
-    <!-- Google Fonts: Inter (English/Numbers), Noto Sans Telugu (Telugu), Noto Sans Devanagari (Hindi) -->
+    <title>Sri Laxmi Gayatri Traders - ERP Invoice Dashboard</title>
+    <!-- Google Fonts: Inter, Noto Sans Telugu, Noto Sans Devanagari -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Noto+Sans+Devanagari:wght@400;600;700&family=Noto+Sans+Telugu:wght@400;600;700&display=swap" rel="stylesheet">
+    <!-- Chart.js for interactive analytics -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <link rel="stylesheet" href="styles.css">
 </head>
 <body>
-    <div class="app-wrapper dashboard no-print">
-        <!-- Modern Header Navbar -->
-        <header class="app-header no-print">
-            <div class="header-container">
-                <div class="brand-section">
-                    <div class="brand-icon">🧾</div>
-                    <div class="brand-text">
-                        <h1>Invoice Generator</h1>
-                        <p class="subtitle">Create professional invoices with ease</p>
-                    </div>
-                </div>
-                <div class="header-right">
-                    <div class="header-badge calendar-badge">
-                        <span class="badge-icon">📅</span>
-                        <span id="currentDateHeader">Sep 13, 2026</span>
-                    </div>
-                    <div class="header-badge user-badge">
-                        <div class="user-avatar">👤</div>
-                        <div class="user-info">
-                            <span class="user-name">Sri Laxmi Gayatri Traders</span>
-                            <span class="user-role">Administrator</span>
-                        </div>
-                    </div>
+    <div id="appRoot">
+        <div class="app-shell">
+        <!-- Sidebar Navigation -->
+        <aside class="app-sidebar no-print" id="appSidebar">
+            <div class="sidebar-brand">
+                <div class="brand-logo-icon">🧾</div>
+                <div class="brand-details">
+                    <span class="brand-name">SRI LAXMI GAYATRI</span>
+                    <span class="brand-tag">ERP INVOICE SYSTEM</span>
                 </div>
             </div>
-        </header>
 
-        <main class="main-container">
-            <!-- Statistics Section -->
-            <section class="stats-section">
-                <div class="stats-grid" id="statsBar">
-                    <div class="stat-card stat-card-customers">
-                        <div class="stat-card-header">
-                            <span class="stat-label">CUSTOMERS</span>
-                            <span class="stat-icon-wrapper">👥</span>
-                        </div>
-                        <div class="stat-value-container">
-                            <span class="stat-value" id="totalCustomers">0</span>
-                        </div>
-                        <div class="stat-footer">Active Accounts</div>
-                    </div>
+            <nav class="sidebar-menu">
+                <div class="menu-heading">MAIN MENU</div>
+                <button type="button" class="nav-item active" data-view="dashboard" id="navDashboard">
+                    <span class="nav-icon">📊</span>
+                    <span class="nav-label">Dashboard</span>
+                </button>
+                <button type="button" class="nav-item" data-view="create-invoice" id="navCreateInvoice">
+                    <span class="nav-icon">➕</span>
+                    <span class="nav-label">Create Invoice</span>
+                </button>
+                <button type="button" class="nav-item" data-view="invoices" id="navInvoices">
+                    <span class="nav-icon">📑</span>
+                    <span class="nav-label">Invoices</span>
+                    <span class="nav-badge" id="badgeInvoiceCount">0</span>
+                </button>
+                <button type="button" class="nav-item" data-view="customers" id="navCustomers">
+                    <span class="nav-icon">👥</span>
+                    <span class="nav-label">Customers</span>
+                    <span class="nav-badge" id="badgeCustomerCount">0</span>
+                </button>
+                <button type="button" class="nav-item" data-view="products" id="navProducts">
+                    <span class="nav-icon">📦</span>
+                    <span class="nav-label">Products</span>
+                    <span class="nav-badge" id="badgeProductCount">0</span>
+                </button>
+            </nav>
 
-                    <div class="stat-card stat-card-products">
-                        <div class="stat-card-header">
-                            <span class="stat-label">PRODUCTS</span>
-                            <span class="stat-icon-wrapper">📦</span>
-                        </div>
-                        <div class="stat-value-container">
-                            <span class="stat-value" id="totalProducts">0</span>
-                        </div>
-                        <div class="stat-footer">Available Items</div>
-                    </div>
+            <div class="sidebar-footer">
+                <div class="system-status-indicator">
+                    <span class="status-dot"></span>
+                    <span class="status-text">SQLite Learning DB Active</span>
+                </div>
+                <div class="store-quick-info">
+                    <span class="store-city">📍 Hyderabad Wholesale Hub</span>
+                </div>
+                <button type="button" class="btn-danger-reset" id="btnOpenResetModal" title="Permanently delete all business data and start fresh">
+                    <span class="btn-icon">⚠️</span> Reset All Business Data
+                </button>
+            </div>
+        </aside>
 
-                    <div class="stat-card stat-card-orders">
-                        <div class="stat-card-header">
-                            <span class="stat-label">ORDERS</span>
-                            <span class="stat-icon-wrapper">🛒</span>
-                        </div>
-                        <div class="stat-value-container">
-                            <span class="stat-value" id="totalOrders">0</span>
-                        </div>
-                        <div class="stat-footer">Total Invoiced</div>
+        <!-- Sidebar Mobile Overlay -->
+        <div class="sidebar-overlay no-print" id="sidebarOverlay"></div>
+
+        <!-- Main Workspace Area -->
+        <div class="app-main">
+            <!-- Top Header Bar -->
+            <header class="app-topbar no-print">
+                <div class="topbar-left">
+                    <button type="button" class="sidebar-toggle-btn" id="sidebarToggle" title="Toggle Navigation">
+                        ☰
+                    </button>
+                    <div class="page-title-box">
+                        <h1 class="page-title" id="pageTitle">Dashboard</h1>
+                        <p class="page-subtitle" id="pageSubtitle">Real-time revenue, invoices, and business analytics</p>
                     </div>
                 </div>
-            </section>
 
-            <!-- Main Form Card Container -->
-            <div class="form-container">
-                <!-- Customer Information Section -->
-                <section class="form-section card-section">
-                    <div class="section-header">
-                        <h2><span class="section-icon">👤</span> Customer Information</h2>
-                        <p class="section-desc">Select or enter customer and shop location details</p>
+                <div class="topbar-right">
+                    <!-- Date Filter (Active for Dashboard view) -->
+                    <div class="filter-dropdown-wrapper" id="topDateRangeContainer">
+                        <span class="filter-icon">📅</span>
+                        <select id="globalDateRange" class="filter-select" title="Select Reporting Date Range">
+                            <option value="7d">Last 7 Days</option>
+                            <option value="30d" selected>Last 30 Days</option>
+                            <option value="this_year">This Year</option>
+                            <option value="all">All Time</option>
+                        </select>
                     </div>
-                    <div class="form-grid">
-                        <div class="form-group autocomplete-wrapper">
-                            <label for="shopName">Shop Name <span class="required">*</span></label>
-                            <div class="input-wrapper">
-                                <span class="input-icon">🏪</span>
-                                <input type="text" id="shopName" required placeholder="Enter shop name" autocomplete="off">
-                            </div>
-                            <div class="autocomplete-dropdown" id="customerAutocomplete"></div>
-                        </div>
-                        <div class="form-group">
-                            <label for="area">Area / Location <span class="required">*</span></label>
-                            <div class="input-wrapper">
-                                <span class="input-icon">📍</span>
-                                <input type="text" id="area" required placeholder="Enter area/location" autocomplete="off">
-                            </div>
-                        </div>
-                    </div>
-                </section>
 
-                <!-- Product Entry Section -->
-                <section class="form-section card-section">
-                    <div class="section-header">
-                        <h2><span class="section-icon">🛍️</span> Add Products</h2>
-                        <p class="section-desc">Add items and prices to current invoice</p>
+                    <!-- Quick Action: + New Invoice -->
+                    <button type="button" class="btn btn-primary-top" id="btnTopNewInvoice">
+                        <span class="btn-icon">➕</span> New Invoice
+                    </button>
+
+                    <!-- User / Store Profile Badge -->
+                    <div class="store-user-badge">
+                        <div class="badge-avatar">🏛️</div>
+                        <div class="badge-info">
+                            <span class="store-title">Sri Laxmi Gayatri</span>
+                            <span class="store-subtitle">Distributor</span>
+                        </div>
                     </div>
-                    <div class="product-form">
-                        <div class="form-row">
-                            <div class="form-group flex-product autocomplete-wrapper">
-                                <label for="productName">Product Name <span class="required">*</span></label>
-                                <div class="input-wrapper">
-                                    <span class="input-icon">🏷️</span>
-                                    <input type="text" id="productName" required placeholder="Enter product name" autocomplete="off">
-                                </div>
-                                <div class="autocomplete-dropdown" id="productAutocomplete"></div>
+                </div>
+            </header>
+
+            <!-- Main Content Container with Views -->
+            <main class="app-content-body">
+
+                <!-- ========================================================
+                     VIEW 1: DASHBOARD
+                     ======================================================== -->
+                <div class="view-container active" id="viewDashboard">
+                    <!-- Real Statistics Metric Cards Grid -->
+                    <div class="metrics-grid">
+                        <div class="metric-card metric-revenue">
+                            <div class="metric-header">
+                                <span class="metric-title">TOTAL REVENUE</span>
+                                <span class="metric-icon-box">💰</span>
                             </div>
-                            <div class="form-group flex-qty">
-                                <label for="quantity">Quantity <span class="required">*</span></label>
-                                <div class="input-wrapper">
-                                    <span class="input-icon">🔢</span>
-                                    <input type="number" id="quantity" required min="1" placeholder="Qty">
+                            <div class="metric-value-row">
+                                <span class="metric-currency">₹</span>
+                                <span class="metric-number" id="dashTotalSales">0.00</span>
+                            </div>
+                            <div class="metric-footer">
+                                <span class="metric-hint">Cumulative sales from saved invoices</span>
+                            </div>
+                        </div>
+
+                        <div class="metric-card metric-month">
+                            <div class="metric-header">
+                                <span class="metric-title">THIS MONTH'S SALES</span>
+                                <span class="metric-icon-box">📅</span>
+                            </div>
+                            <div class="metric-value-row">
+                                <span class="metric-currency">₹</span>
+                                <span class="metric-number" id="dashThisMonthSales">0.00</span>
+                            </div>
+                            <div class="metric-footer">
+                                <span class="metric-hint">Current calendar month sales</span>
+                            </div>
+                        </div>
+
+                        <div class="metric-card metric-invoices">
+                            <div class="metric-header">
+                                <span class="metric-title">TOTAL INVOICES</span>
+                                <span class="metric-icon-box">🧾</span>
+                            </div>
+                            <div class="metric-value-row">
+                                <span class="metric-number" id="dashTotalInvoices">0</span>
+                            </div>
+                            <div class="metric-footer">
+                                <span class="metric-hint">Saved invoice records</span>
+                            </div>
+                        </div>
+
+                        <div class="metric-card metric-customers">
+                            <div class="metric-header">
+                                <span class="metric-title">TOTAL CUSTOMERS</span>
+                                <span class="metric-icon-box">👥</span>
+                            </div>
+                            <div class="metric-value-row">
+                                <span class="metric-number" id="dashTotalCustomers">0</span>
+                            </div>
+                            <div class="metric-footer">
+                                <span class="metric-hint">Learned shop accounts</span>
+                            </div>
+                        </div>
+
+                        <div class="metric-card metric-products">
+                            <div class="metric-header">
+                                <span class="metric-title">TOTAL PRODUCTS</span>
+                                <span class="metric-icon-box">📦</span>
+                            </div>
+                            <div class="metric-value-row">
+                                <span class="metric-number" id="dashTotalProducts">0</span>
+                            </div>
+                            <div class="metric-footer">
+                                <span class="metric-hint">Active catalog items</span>
+                            </div>
+                        </div>
+
+                        <div class="metric-card metric-aov">
+                            <div class="metric-header">
+                                <span class="metric-title">AVG ORDER VALUE</span>
+                                <span class="metric-icon-box">📈</span>
+                            </div>
+                            <div class="metric-value-row">
+                                <span class="metric-currency">₹</span>
+                                <span class="metric-number" id="dashAvgOrderValue">0.00</span>
+                            </div>
+                            <div class="metric-footer">
+                                <span class="metric-hint">Average sales per invoice</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Analytics Charts & Performance Split Row -->
+                    <div class="dashboard-analytics-row">
+                        <!-- Chart Card -->
+                        <div class="card-box chart-card-box">
+                            <div class="card-box-header">
+                                <div>
+                                    <h2 class="card-box-title">📊 Sales Revenue Trend</h2>
+                                    <p class="card-box-subtitle">Sales volume and order trajectory over time</p>
+                                </div>
+                                <div class="chart-legend-badge" id="chartPeriodLabel">Last 30 Days</div>
+                            </div>
+                            <div class="chart-canvas-wrapper">
+                                <canvas id="salesChart" height="280"></canvas>
+                            </div>
+                        </div>
+
+                        <!-- Top Customers Quick List -->
+                        <div class="card-box top-customers-card-box">
+                            <div class="card-box-header">
+                                <div>
+                                    <h2 class="card-box-title">🏆 Top Customers</h2>
+                                    <p class="card-box-subtitle">Highest spending accounts</p>
+                                </div>
+                                <button type="button" class="link-btn" id="linkViewAllCustomers">View All →</button>
+                            </div>
+                            <div class="top-customers-list" id="dashTopCustomersList">
+                                <div class="loading-state">Loading customer data...</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Recent Invoices Table Card -->
+                    <div class="card-box recent-invoices-card-box">
+                        <div class="card-box-header">
+                            <div>
+                                <h2 class="card-box-title">📑 Recent Invoices</h2>
+                                <p class="card-box-subtitle">Latest generated invoices with instant actions</p>
+                            </div>
+                            <button type="button" class="btn btn-secondary-sm" id="linkViewAllInvoices">
+                                View All Invoices →
+                            </button>
+                        </div>
+                        <div class="table-responsive">
+                            <table class="erp-table" id="dashRecentInvoicesTable">
+                                <thead>
+                                    <tr>
+                                        <th>Invoice #</th>
+                                        <th>Customer Name</th>
+                                        <th>Area / Location</th>
+                                        <th>Date</th>
+                                        <th>Type</th>
+                                        <th class="text-right">Total Amount</th>
+                                        <th class="text-center">Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="dashRecentInvoicesBody">
+                                    <tr>
+                                        <td colspan="7" class="loading-state">Loading recent invoices...</td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- ========================================================
+                     VIEW 2: CREATE INVOICE (Existing Form Preserved 100%)
+                     ======================================================== -->
+                <div class="view-container" id="viewCreateInvoice" style="display:none;">
+                    <div class="form-container">
+                        <!-- Customer Information Section -->
+                        <section class="form-section card-section">
+                            <div class="section-header">
+                                <h2><span class="section-icon">👤</span> Customer Information</h2>
+                                <p class="section-desc">Select or enter customer and shop location details</p>
+                            </div>
+                            <div class="form-grid">
+                                <div class="form-group autocomplete-wrapper">
+                                    <label for="shopName">Shop Name <span class="required">*</span></label>
+                                    <div class="input-wrapper">
+                                        <span class="input-icon">🏪</span>
+                                        <input type="text" id="shopName" required placeholder="Enter shop name" autocomplete="off">
+                                    </div>
+                                    <div class="autocomplete-dropdown" id="customerAutocomplete"></div>
+                                </div>
+                                <div class="form-group">
+                                    <label for="area">Area / Location <span class="required">*</span></label>
+                                    <div class="input-wrapper">
+                                        <span class="input-icon">📍</span>
+                                        <input type="text" id="area" required placeholder="Enter area/location" autocomplete="off">
+                                    </div>
                                 </div>
                             </div>
-                            <div class="form-group flex-price">
-                                <label for="price">Unit Price <span class="required">*</span></label>
-                                <div class="input-wrapper">
-                                    <span class="input-icon">₹</span>
-                                    <input type="number" id="price" required step="0.01" min="0" placeholder="0.00">
+                        </section>
+
+                        <!-- Product Entry Section -->
+                        <section class="form-section card-section">
+                            <div class="section-header">
+                                <h2><span class="section-icon">🛍️</span> Add Products</h2>
+                                <p class="section-desc">Add items and prices to current invoice</p>
+                            </div>
+                            <div class="product-form">
+                                <div class="form-row">
+                                    <div class="form-group flex-product autocomplete-wrapper">
+                                        <label for="productName">Product Name <span class="required">*</span></label>
+                                        <div class="input-wrapper">
+                                            <span class="input-icon">🏷️</span>
+                                            <input type="text" id="productName" required placeholder="Enter product name" autocomplete="off">
+                                        </div>
+                                        <div class="autocomplete-dropdown" id="productAutocomplete"></div>
+                                    </div>
+                                    <div class="form-group flex-qty">
+                                        <label for="quantity">Quantity <span class="required">*</span></label>
+                                        <div class="input-wrapper">
+                                            <span class="input-icon">🔢</span>
+                                            <input type="number" id="quantity" required min="1" placeholder="Qty">
+                                        </div>
+                                    </div>
+                                    <div class="form-group flex-price">
+                                        <label for="price">Unit Price <span class="required">*</span></label>
+                                        <div class="input-wrapper">
+                                            <span class="input-icon">₹</span>
+                                            <input type="number" id="price" required step="0.01" min="0" placeholder="0.00">
+                                        </div>
+                                    </div>
+                                    <div class="form-group flex-btn">
+                                        <label>&nbsp;</label>
+                                        <button type="button" id="addProductBtn" class="btn btn-add">
+                                            <span class="btn-icon">➕</span> Add Product
+                                        </button>
+                                    </div>
                                 </div>
                             </div>
-                            <div class="form-group flex-btn">
-                                <label>&nbsp;</label>
-                                <button type="button" id="addProductBtn" class="btn btn-add">
-                                    <span class="btn-icon">➕</span> Add Product
+                        </section>
+
+                        <!-- Customer Product Recommendations Section -->
+                        <section class="form-section card-section" id="recommendationsSection" style="display: none;">
+                            <div class="section-header section-header-split">
+                                <div>
+                                    <h2><span class="section-icon">⭐</span> <span id="recommendationsTitle">Frequently Ordered Products</span></h2>
+                                    <p class="section-desc" id="recommendationsDesc">Products previously ordered by this customer</p>
+                                </div>
+                                <button type="button" id="refreshRecommendationsBtn" class="btn btn-small btn-secondary" title="Refresh customer recommendations">🔄 Refresh</button>
+                            </div>
+                            <div class="recommendations-container">
+                                <div id="recommendationsList" class="recommendations-list">
+                                    <div class="loading-recommendations">Loading recommendations...</div>
+                                </div>
+                            </div>
+                        </section>
+
+                        <!-- Customer Insights Section -->
+                        <section class="form-section card-section" id="insightsSection" style="display: none;">
+                            <div class="section-header">
+                                <h2><span class="section-icon">📊</span> Customer Insights</h2>
+                                <p class="section-desc">Historical purchase patterns and summary metrics</p>
+                            </div>
+                            <div id="customerInsights" class="customer-insights">
+                                <!-- Insights loaded here -->
+                            </div>
+                        </section>
+
+                        <!-- Products List Section -->
+                        <section class="form-section card-section">
+                            <div class="section-header">
+                                <h2><span class="section-icon">📋</span> Products Added</h2>
+                                <p class="section-desc">Review products added to this invoice</p>
+                            </div>
+                            <div class="products-container">
+                                <div id="productsList" class="products-list">
+                                    <div class="empty-state">
+                                        <div class="empty-icon">📦</div>
+                                        <div class="empty-title">No products added yet</div>
+                                        <div class="empty-sub">Add products using the form above</div>
+                                    </div>
+                                </div>
+                                
+                                <!-- Prominent Total Amount Banner -->
+                                <div class="total-section">
+                                    <div class="total-card">
+                                        <div class="total-info">
+                                            <span class="total-title">Total Amount</span>
+                                            <span class="total-subtitle">Total calculated amount for this invoice</span>
+                                        </div>
+                                        <div class="total-value-wrapper">
+                                            <span id="totalAmount" class="total-amount">₹0.00</span>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </section>
+
+                        <!-- Invoice Type Selection Section -->
+                        <section class="form-section card-section">
+                            <div class="section-header">
+                                <h2><span class="section-icon">📑</span> Invoice Type</h2>
+                                <p class="section-desc">Select how this invoice should be generated</p>
+                            </div>
+                            <div class="invoice-type-selection">
+                                <label class="radio-card" for="invoiceTypeCurrent">
+                                    <input type="radio" id="invoiceTypeCurrent" name="invoiceType" value="current" checked>
+                                    <div class="radio-custom"></div>
+                                    <div class="radio-content">
+                                        <span class="radio-title">Current Bill Only</span>
+                                        <span class="radio-desc">Generate invoice for today's order only</span>
+                                    </div>
+                                </label>
+                                <label class="radio-card" for="invoiceTypeAll">
+                                    <input type="radio" id="invoiceTypeAll" name="invoiceType" value="all">
+                                    <div class="radio-custom"></div>
+                                    <div class="radio-content">
+                                        <span class="radio-title">All Bills (With History)</span>
+                                        <span class="radio-desc">Include all previous orders + today's order with grand total</span>
+                                    </div>
+                                </label>
+                            </div>
+                        </section>
+
+                        <!-- Action Buttons Section -->
+                        <section class="form-section action-section">
+                            <div class="action-buttons">
+                                <button type="button" id="clearAllBtn" class="btn btn-outline-danger">
+                                    <span class="btn-icon">🗑️</span> Clear All
+                                </button>
+                                <button type="button" id="generateInvoiceBtn" class="btn btn-primary-lg">
+                                    <span class="btn-icon">🧾</span> Generate Invoice
+                                </button>
+                            </div>
+                        </section>
+                    </div>
+                </div>
+
+                <!-- ========================================================
+                     VIEW 3: INVOICES DIRECTORY
+                     ======================================================== -->
+                <div class="view-container" id="viewInvoices" style="display:none;">
+                    <div class="card-box">
+                        <!-- Search & Filter Controls -->
+                        <div class="filters-toolbar">
+                            <div class="search-input-group">
+                                <span class="search-icon">🔍</span>
+                                <input type="text" id="invoiceSearchInput" placeholder="Search by invoice #, customer name, area, product..." autocomplete="off">
+                                <button type="button" class="clear-search-btn" id="invoiceClearSearchBtn" style="display:none;">✕</button>
+                            </div>
+
+                            <div class="filter-controls-group">
+                                <div class="filter-item">
+                                    <label>Customer:</label>
+                                    <select id="invoiceCustomerSelect">
+                                        <option value="">All Customers</option>
+                                    </select>
+                                </div>
+
+                                <div class="filter-item">
+                                    <label>Date Range:</label>
+                                    <select id="invoiceDateSelect">
+                                        <option value="all" selected>All Time</option>
+                                        <option value="7d">Last 7 Days</option>
+                                        <option value="30d">Last 30 Days</option>
+                                        <option value="this_year">This Year</option>
+                                    </select>
+                                </div>
+
+                                <div class="filter-item">
+                                    <label>Type:</label>
+                                    <select id="invoiceTypeSelect">
+                                        <option value="">All Types</option>
+                                        <option value="current">Current Bill</option>
+                                        <option value="all">All Bills (With History)</option>
+                                    </select>
+                                </div>
+
+                                <div class="filter-item">
+                                    <label>Sort By:</label>
+                                    <select id="invoiceSortSelect">
+                                        <option value="date_desc">Date (Newest First)</option>
+                                        <option value="date_asc">Date (Oldest First)</option>
+                                        <option value="amount_desc">Amount (Highest First)</option>
+                                        <option value="amount_asc">Amount (Lowest First)</option>
+                                        <option value="customer_asc">Customer (A-Z)</option>
+                                    </select>
+                                </div>
+
+                                <button type="button" class="btn btn-secondary-sm" id="btnResetInvoiceFilters">
+                                    Reset
                                 </button>
                             </div>
                         </div>
-                    </div>
-                </section>
 
-                <!-- Customer Product Recommendations Section -->
-                <section class="form-section card-section" id="recommendationsSection" style="display: none;">
-                    <div class="section-header section-header-split">
-                        <div>
-                            <h2><span class="section-icon">⭐</span> <span id="recommendationsTitle">Frequently Ordered Products</span></h2>
-                            <p class="section-desc" id="recommendationsDesc">Products previously ordered by this customer</p>
-                        </div>
-                        <button type="button" id="refreshRecommendationsBtn" class="btn btn-small btn-secondary" title="Refresh customer recommendations">🔄 Refresh</button>
-                    </div>
-                    <div class="recommendations-container">
-                        <div id="recommendationsList" class="recommendations-list">
-                            <div class="loading-recommendations">Loading recommendations...</div>
-                        </div>
-                    </div>
-                </section>
-
-                <!-- Customer Insights Section -->
-                <section class="form-section card-section" id="insightsSection" style="display: none;">
-                    <div class="section-header">
-                        <h2><span class="section-icon">📊</span> Customer Insights</h2>
-                        <p class="section-desc">Historical purchase patterns and summary metrics</p>
-                    </div>
-                    <div id="customerInsights" class="customer-insights">
-                        <!-- Insights loaded here -->
-                    </div>
-                </section>
-
-                <!-- Products List Section -->
-                <section class="form-section card-section">
-                    <div class="section-header">
-                        <h2><span class="section-icon">📋</span> Products Added</h2>
-                        <p class="section-desc">Review products added to this invoice</p>
-                    </div>
-                    <div class="products-container">
-                        <div id="productsList" class="products-list">
-                            <div class="empty-state">
-                                <div class="empty-icon">📦</div>
-                                <div class="empty-title">No products added yet</div>
-                                <div class="empty-sub">Add products using the form above</div>
+                        <!-- Summary & Bulk Actions Bar -->
+                        <div class="table-summary-bar">
+                            <div class="summary-left">
+                                Showing <strong id="invTableCount">0</strong> invoices
+                            </div>
+                            <div class="bulk-action-bar" id="invoicesBulkBar" style="display: none;">
+                                <span class="bulk-selected-text"><strong id="bulkSelectedCount">0</strong> selected (<strong id="bulkSelectedAmount">₹0.00</strong>)</span>
+                                <button type="button" class="btn btn-danger-sm" id="btnOpenBulkDeleteModal" onclick="openBulkDeleteModal()">
+                                    🗑️ Delete Selected
+                                </button>
+                            </div>
+                            <div class="summary-right">
+                                Total Filtered Revenue: <strong class="text-primary-color" id="invTableTotal">₹0.00</strong>
                             </div>
                         </div>
-                        
-                        <!-- Prominent Total Amount Banner -->
-                        <div class="total-section">
-                            <div class="total-card">
-                                <div class="total-info">
-                                    <span class="total-title">Total Amount</span>
-                                    <span class="total-subtitle">Total calculated amount for this invoice</span>
+
+                        <!-- Invoices Data Table -->
+                        <div class="table-responsive">
+                            <table class="erp-table" id="invoicesFullTable">
+                                <thead>
+                                    <tr>
+                                        <th style="width: 38px; text-align: center;">
+                                            <input type="checkbox" id="selectAllInvoices" title="Select all visible invoices" class="invoice-checkbox">
+                                        </th>
+                                        <th>Invoice #</th>
+                                        <th>Customer Name</th>
+                                        <th>Area / Location</th>
+                                        <th>Date</th>
+                                        <th>Type</th>
+                                        <th>Items</th>
+                                        <th class="text-right">Total Amount</th>
+                                        <th class="text-center">Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="invoicesTableBody">
+                                    <tr>
+                                        <td colspan="9" class="loading-state">Loading invoices...</td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- ========================================================
+                     VIEW 4: CUSTOMERS DIRECTORY
+                     ======================================================== -->
+                <div class="view-container" id="viewCustomers" style="display:none;">
+                    <div class="card-box">
+                        <div class="filters-toolbar">
+                            <div class="search-input-group">
+                                <span class="search-icon">🔍</span>
+                                <input type="text" id="customerSearchInput" placeholder="Search customer by name or area..." autocomplete="off">
+                            </div>
+
+                            <div class="filter-controls-group">
+                                <div class="filter-item">
+                                    <label>Sort By:</label>
+                                    <select id="customerSortSelect">
+                                        <option value="amount">Total Spend (Highest)</option>
+                                        <option value="invoices">Invoice Count (Most)</option>
+                                        <option value="name">Customer Name (A-Z)</option>
+                                        <option value="last_date">Recent Activity</option>
+                                    </select>
                                 </div>
-                                <div class="total-value-wrapper">
-                                    <span id="totalAmount" class="total-amount">₹0.00</span>
+                            </div>
+                        </div>
+
+                        <div class="table-summary-bar">
+                            <div class="summary-left">
+                                Total Accounts: <strong id="customersTotalCount">0</strong>
+                            </div>
+                        </div>
+
+                        <!-- Customers Grid -->
+                        <div class="customers-card-grid" id="customersCardGrid">
+                            <div class="loading-state">Loading customer accounts...</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- ========================================================
+                     VIEW 5: PRODUCTS DIRECTORY
+                     ======================================================== -->
+                <div class="view-container" id="viewProducts" style="display:none;">
+                    <div class="card-box">
+                        <div class="filters-toolbar">
+                            <div class="search-input-group">
+                                <span class="search-icon">🔍</span>
+                                <input type="text" id="productSearchInput" placeholder="Search product name..." autocomplete="off">
+                            </div>
+
+                            <div class="filter-controls-group">
+                                <div class="filter-item">
+                                    <label>Sort By:</label>
+                                    <select id="productSortSelect">
+                                        <option value="quantity">Total Qty Sold (Highest)</option>
+                                        <option value="sales">Total Sales (Highest)</option>
+                                        <option value="invoices">Invoices Count</option>
+                                        <option value="name">Product Name (A-Z)</option>
+                                        <option value="price">Current Price (Highest)</option>
+                                    </select>
                                 </div>
                             </div>
                         </div>
-                    </div>
-                </section>
 
-                <!-- Invoice Type Selection Section -->
-                <section class="form-section card-section">
-                    <div class="section-header">
-                        <h2><span class="section-icon">📑</span> Invoice Type</h2>
-                        <p class="section-desc">Select how this invoice should be generated</p>
-                    </div>
-                    <div class="invoice-type-selection">
-                        <label class="radio-card" for="invoiceTypeCurrent">
-                            <input type="radio" id="invoiceTypeCurrent" name="invoiceType" value="current" checked>
-                            <div class="radio-custom"></div>
-                            <div class="radio-content">
-                                <span class="radio-title">Current Bill Only</span>
-                                <span class="radio-desc">Generate invoice for today's order only</span>
+                        <div class="table-summary-bar">
+                            <div class="summary-left">
+                                Total Products: <strong id="productsTotalCount">0</strong>
                             </div>
-                        </label>
-                        <label class="radio-card" for="invoiceTypeAll">
-                            <input type="radio" id="invoiceTypeAll" name="invoiceType" value="all">
-                            <div class="radio-custom"></div>
-                            <div class="radio-content">
-                                <span class="radio-title">All Bills (With History)</span>
-                                <span class="radio-desc">Include all previous orders + today's order with grand total</span>
-                            </div>
-                        </label>
+                        </div>
+
+                        <div class="table-responsive">
+                            <table class="erp-table" id="productsFullTable">
+                                <thead>
+                                    <tr>
+                                        <th>Product Name</th>
+                                        <th class="text-right">Latest Price</th>
+                                        <th class="text-right">Avg Price</th>
+                                        <th class="text-center">Qty Sold</th>
+                                        <th class="text-right">Total Revenue</th>
+                                        <th class="text-center">Invoices</th>
+                                        <th class="text-center">Buyers</th>
+                                        <th class="text-center">Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="productsTableBody">
+                                    <tr>
+                                        <td colspan="8" class="loading-state">Loading products...</td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
                     </div>
-                </section>
+                </div>
 
-                <!-- Action Buttons Section -->
-                <section class="form-section action-section">
-                    <div class="action-buttons">
-                        <button type="button" id="clearAllBtn" class="btn btn-outline-danger">
-                            <span class="btn-icon">🗑️</span> Clear All
-                        </button>
-                        <button type="button" id="generateInvoiceBtn" class="btn btn-primary-lg">
-                            <span class="btn-icon">🧾</span> Generate Invoice
-                        </button>
-                    </div>
-                </section>
-            </div>
-        </main>
-
-        <!-- Status Messages -->
-        <div id="statusMessage" class="status-message"></div>
-
-        <!-- Toast Notifications Container -->
-        <div id="toastContainer" class="toast-container"></div>
-
-        <!-- Loading Overlay -->
-        <div id="loadingOverlay" class="loading-overlay">
-            <div class="loading-spinner">
-                <div class="spinner"></div>
-                <p>Generating your invoice...</p>
-            </div>
+            </main>
         </div>
     </div>
 
-    <!-- A4 Tax Invoice Preview & Print Modal -->
+    <!-- Status Messages -->
+    <div id="statusMessage" class="status-message"></div>
+
+    <!-- Toast Notifications Container -->
+    <div id="toastContainer" class="toast-container"></div>
+
+    <!-- Loading Overlay -->
+    <div id="loadingOverlay" class="loading-overlay">
+        <div class="loading-spinner">
+            <div class="spinner"></div>
+            <p id="loadingSpinnerText">Processing...</p>
+        </div>
+    </div>
+
+    <!-- ========================================================
+         MODAL 1: A4 TAX INVOICE PREVIEW & PRINT (PRESERVED)
+         ======================================================== -->
     <div id="invoiceModal" class="invoice-modal">
         <div class="invoice-modal-overlay no-print" id="modalOverlay"></div>
         <div class="invoice-modal-dialog">
@@ -302,6 +693,525 @@
             </div>
         </div>
     </div>
+
+    <!-- ========================================================
+         MODAL 2: CUSTOMER DETAIL & HISTORY MODAL
+         ======================================================== -->
+    <div id="customerModal" class="side-drawer-modal">
+        <div class="drawer-overlay" id="customerModalOverlay"></div>
+        <div class="drawer-panel">
+            <div class="drawer-header">
+                <div class="drawer-header-info">
+                    <span class="drawer-icon">👤</span>
+                    <div>
+                        <h2 class="drawer-title" id="custModalName">Customer Profile</h2>
+                        <span class="drawer-subtitle" id="custModalArea">Area Location</span>
+                    </div>
+                </div>
+                <div class="drawer-header-actions">
+                    <button type="button" class="btn btn-danger-sm" id="custModalDeleteBtn" title="Delete Customer">
+                        🗑️ Delete Customer
+                    </button>
+                    <button type="button" class="btn btn-primary-sm" id="custModalCreateInvBtn">
+                        ➕ Create Invoice
+                    </button>
+                    <button type="button" class="btn-close-drawer" id="custModalCloseBtn">✕</button>
+                </div>
+            </div>
+
+            <div class="drawer-body">
+                <!-- Customer KPI Stats -->
+                <div class="drawer-stats-row">
+                    <div class="drawer-stat-item">
+                        <span class="ds-label">Total Spend</span>
+                        <span class="ds-value" id="custModalSpend">₹0.00</span>
+                    </div>
+                    <div class="drawer-stat-item">
+                        <span class="ds-label">Total Invoices</span>
+                        <span class="ds-value" id="custModalInvCount">0</span>
+                    </div>
+                    <div class="drawer-stat-item">
+                        <span class="ds-label">Average Order</span>
+                        <span class="ds-value" id="custModalAOV">₹0.00</span>
+                    </div>
+                    <div class="drawer-stat-item">
+                        <span class="ds-label">Last Order</span>
+                        <span class="ds-value" id="custModalLastDate">-</span>
+                    </div>
+                </div>
+
+                <!-- Frequently Ordered Products -->
+                <div class="drawer-section">
+                    <h3 class="drawer-section-title">⭐ Frequently Ordered Products</h3>
+                    <div class="customer-rec-tags" id="custModalTopProducts">
+                        <!-- Rendered dynamically -->
+                    </div>
+                </div>
+
+                <!-- Customer Invoices History -->
+                <div class="drawer-section">
+                    <h3 class="drawer-section-title">📑 Invoices History</h3>
+                    <div class="table-responsive">
+                        <table class="erp-table table-sm" id="custModalInvoicesTable">
+                            <thead>
+                                <tr>
+                                    <th>Invoice #</th>
+                                    <th>Date</th>
+                                    <th>Items</th>
+                                    <th class="text-right">Amount</th>
+                                    <th class="text-center">Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody id="custModalInvoicesBody">
+                                <!-- Loaded dynamically -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ========================================================
+         MODAL 3: PRODUCT DETAIL & BUYERS MODAL
+         ======================================================== -->
+    <div id="productModal" class="side-drawer-modal">
+        <div class="drawer-overlay" id="productModalOverlay"></div>
+        <div class="drawer-panel">
+            <div class="drawer-header">
+                <div class="drawer-header-info">
+                    <span class="drawer-icon">📦</span>
+                    <div>
+                        <h2 class="drawer-title" id="prodModalName">Product Profile</h2>
+                        <span class="drawer-subtitle" id="prodModalPrice">Current Price: ₹0.00</span>
+                    </div>
+                </div>
+                <div class="drawer-header-actions">
+                    <button type="button" class="btn btn-danger-sm" id="prodModalDeleteBtn" title="Delete Product">
+                        🗑️ Delete Product
+                    </button>
+                    <button type="button" class="btn-close-drawer" id="prodModalCloseBtn">✕</button>
+                </div>
+            </div>
+
+            <div class="drawer-body">
+                <!-- Product KPI Stats -->
+                <div class="drawer-stats-row">
+                    <div class="drawer-stat-item">
+                        <span class="ds-label">Total Revenue</span>
+                        <span class="ds-value" id="prodModalRevenue">₹0.00</span>
+                    </div>
+                    <div class="drawer-stat-item">
+                        <span class="ds-label">Quantity Sold</span>
+                        <span class="ds-value" id="prodModalQty">0</span>
+                    </div>
+                    <div class="drawer-stat-item">
+                        <span class="ds-label">Unique Buyers</span>
+                        <span class="ds-value" id="prodModalBuyers">0</span>
+                    </div>
+                    <div class="drawer-stat-item">
+                        <span class="ds-label">Invoices Count</span>
+                        <span class="ds-value" id="prodModalInvoices">0</span>
+                    </div>
+                </div>
+
+                <!-- Customer Buyers List -->
+                <div class="drawer-section">
+                    <h3 class="drawer-section-title">👥 Customers Who Purchase This Product</h3>
+                    <div class="table-responsive">
+                        <table class="erp-table table-sm">
+                            <thead>
+                                <tr>
+                                    <th>Customer Name</th>
+                                    <th class="text-center">Orders</th>
+                                    <th class="text-center">Total Qty</th>
+                                    <th class="text-right">Last Price</th>
+                                    <th>Last Purchased</th>
+                                </tr>
+                            </thead>
+                            <tbody id="prodModalBuyersBody">
+                                <!-- Loaded dynamically -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- Invoices with this Product -->
+                <div class="drawer-section">
+                    <h3 class="drawer-section-title">📑 Recent Invoices Containing This Product</h3>
+                    <div class="table-responsive">
+                        <table class="erp-table table-sm">
+                            <thead>
+                                <tr>
+                                    <th>Invoice #</th>
+                                    <th>Customer</th>
+                                    <th class="text-center">Qty</th>
+                                    <th class="text-right">Price</th>
+                                    <th class="text-right">Total</th>
+                                    <th>Date</th>
+                                    <th class="text-center">Action</th>
+                                </tr>
+                            </thead>
+                            <tbody id="prodModalInvoicesBody">
+                                <!-- Loaded dynamically -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ========================================================
+         MODAL 4: START FRESH / RESET ALL BUSINESS DATA
+         ======================================================== -->
+    <div id="resetDataModal" class="danger-modal-wrapper" style="display: none;">
+        <div class="danger-modal-overlay" id="resetModalOverlay"></div>
+        <div class="danger-modal-dialog">
+            <div class="danger-modal-header">
+                <div class="danger-title-row">
+                    <span class="danger-header-icon">⚠️</span>
+                    <div>
+                        <h2 class="danger-modal-title">Reset All Business Data</h2>
+                        <p class="danger-modal-subtitle">Permanent action — Cannot be undone</p>
+                    </div>
+                </div>
+                <button type="button" class="danger-close-btn" id="btnCloseResetModal">✕</button>
+            </div>
+
+            <div class="danger-modal-body">
+                <div class="danger-alert-box">
+                    <span class="alert-box-icon">🚨</span>
+                    <div class="alert-box-content">
+                        <strong>Warning: You are about to permanently wipe all business records.</strong>
+                        <p>This will delete all saved invoices, customer history, product records, invoice storage folders, training caches, and local drafts. The app will return to a clean, empty state with 0 invoices and ₹0.00 revenue.</p>
+                    </div>
+                </div>
+
+                <div class="danger-stats-preview">
+                    <div class="dsp-title">Data that will be permanently deleted:</div>
+                    <div class="dsp-grid">
+                        <div class="dsp-item">
+                            <span class="dsp-val" id="dspInvoicesCount">0</span>
+                            <span class="dsp-lbl">Invoices</span>
+                        </div>
+                        <div class="dsp-item">
+                            <span class="dsp-val" id="dspCustomersCount">0</span>
+                            <span class="dsp-lbl">Customers</span>
+                        </div>
+                        <div class="dsp-item">
+                            <span class="dsp-val" id="dspProductsCount">0</span>
+                            <span class="dsp-lbl">Products</span>
+                        </div>
+                        <div class="dsp-item">
+                            <span class="dsp-val" id="dspFoldersCount">0</span>
+                            <span class="dsp-lbl">Storage Folders</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="safe-notice-box">
+                    🛡️ <strong>Safety Guarantee:</strong> Source code, system settings, HTML/CSS/JS files, docx files, and application templates are strictly preserved and will never be touched.
+                </div>
+
+                <div class="danger-confirm-section">
+                    <label for="confirmDeleteInput">
+                        To confirm, please type <code class="danger-code">DELETE ALL DATA</code> below:
+                    </label>
+                    <input type="text" id="confirmDeleteInput" class="danger-confirm-input" placeholder="Type DELETE ALL DATA" autocomplete="off" spellcheck="false">
+                </div>
+            </div>
+
+            <div class="danger-modal-footer">
+                <button type="button" class="btn btn-secondary-modal" id="btnCancelReset">
+                    Cancel
+                </button>
+                <button type="button" class="btn btn-danger-action" id="btnConfirmDelete" disabled>
+                    🗑️ Permanently Delete All Data
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ========================================================
+         MODAL 5: DELETE SINGLE INVOICE
+         ======================================================== -->
+    <div id="deleteInvoiceModal" class="danger-modal-wrapper" style="display: none;">
+        <div class="danger-modal-overlay" id="deleteInvoiceModalOverlay"></div>
+        <div class="danger-modal-dialog">
+            <div class="danger-modal-header">
+                <div class="danger-title-row">
+                    <span class="danger-header-icon">🗑️</span>
+                    <div>
+                        <h2 class="danger-modal-title">Delete Invoice</h2>
+                        <p class="danger-modal-subtitle">Permanent action — Cannot be undone</p>
+                    </div>
+                </div>
+                <button type="button" class="danger-close-btn" id="btnCloseDeleteInvoiceModal">✕</button>
+            </div>
+
+            <div class="danger-modal-body">
+                <div class="danger-alert-box">
+                    <span class="alert-box-icon">⚠️</span>
+                    <div class="alert-box-content">
+                        <strong>Warning: You are about to permanently delete this invoice.</strong>
+                        <p>This will remove the invoice spreadsheet file from the customer's folder and recalculate all customer spend, product stats, and revenue immediately.</p>
+                    </div>
+                </div>
+
+                <div class="item-details-card">
+                    <div class="idc-row">
+                        <span class="idc-lbl">Invoice Number:</span>
+                        <strong class="idc-val text-primary-color" id="delInvNumber">INV-0000</strong>
+                    </div>
+                    <div class="idc-row">
+                        <span class="idc-lbl">Customer:</span>
+                        <span class="idc-val" id="delInvCustomer">-</span>
+                    </div>
+                    <div class="idc-row">
+                        <span class="idc-lbl">Date:</span>
+                        <span class="idc-val" id="delInvDate">-</span>
+                    </div>
+                    <div class="idc-row">
+                        <span class="idc-lbl">Total Amount:</span>
+                        <strong class="idc-val" style="color:#0F172A; font-size:1.05rem;" id="delInvAmount">₹0.00</strong>
+                    </div>
+                </div>
+            </div>
+
+            <div class="danger-modal-footer">
+                <button type="button" class="btn btn-secondary-modal" id="btnCancelDeleteInvoice">
+                    Cancel
+                </button>
+                <button type="button" class="btn btn-danger-action" id="btnConfirmDeleteInvoice">
+                    🗑️ Delete Invoice
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ========================================================
+         MODAL 6: BULK DELETE INVOICES
+         ======================================================== -->
+    <div id="bulkDeleteInvoicesModal" class="danger-modal-wrapper" style="display: none;">
+        <div class="danger-modal-overlay" id="bulkDeleteInvoicesOverlay"></div>
+        <div class="danger-modal-dialog">
+            <div class="danger-modal-header">
+                <div class="danger-title-row">
+                    <span class="danger-header-icon">🗑️</span>
+                    <div>
+                        <h2 class="danger-modal-title">Delete Selected Invoices</h2>
+                        <p class="danger-modal-subtitle">Permanent bulk action</p>
+                    </div>
+                </div>
+                <button type="button" class="danger-close-btn" id="btnCloseBulkDeleteModal">✕</button>
+            </div>
+
+            <div class="danger-modal-body">
+                <div class="danger-alert-box">
+                    <span class="alert-box-icon">⚠️</span>
+                    <div class="alert-box-content">
+                        <strong>Warning: You are about to delete multiple invoices.</strong>
+                        <p>All selected invoices will be permanently deleted from the database and their corresponding customer storage folders.</p>
+                    </div>
+                </div>
+
+                <div class="item-details-card">
+                    <div class="idc-row">
+                        <span class="idc-lbl">Invoices Selected:</span>
+                        <strong class="idc-val" id="bulkDelCount">0</strong>
+                    </div>
+                    <div class="idc-row">
+                        <span class="idc-lbl">Combined Total Amount:</span>
+                        <strong class="idc-val text-primary-color" style="font-size:1.1rem;" id="bulkDelTotal">₹0.00</strong>
+                    </div>
+                </div>
+            </div>
+
+            <div class="danger-modal-footer">
+                <button type="button" class="btn btn-secondary-modal" id="btnCancelBulkDelete">
+                    Cancel
+                </button>
+                <button type="button" class="btn btn-danger-action" id="btnConfirmBulkDelete">
+                    🗑️ Delete Selected Invoices
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ========================================================
+         MODAL 7: DELETE CUSTOMER (TWO CHOICES)
+         ======================================================== -->
+    <div id="deleteCustomerModal" class="danger-modal-wrapper" style="display: none;">
+        <div class="danger-modal-overlay" id="deleteCustomerModalOverlay"></div>
+        <div class="danger-modal-dialog danger-modal-lg">
+            <div class="danger-modal-header">
+                <div class="danger-title-row">
+                    <span class="danger-header-icon">👤</span>
+                    <div>
+                        <h2 class="danger-modal-title">Delete Customer</h2>
+                        <p class="danger-modal-subtitle" id="delCustTitleName">Customer Name</p>
+                    </div>
+                </div>
+                <button type="button" class="danger-close-btn" id="btnCloseDeleteCustomerModal">✕</button>
+            </div>
+
+            <div class="danger-modal-body">
+                <div class="item-details-card" style="margin-bottom: 16px;">
+                    <div class="idc-row">
+                        <span class="idc-lbl">Customer:</span>
+                        <strong class="idc-val" id="delCustName">-</strong>
+                    </div>
+                    <div class="idc-row">
+                        <span class="idc-lbl">Saved Invoices:</span>
+                        <strong class="idc-val" id="delCustInvoiceCount">0</strong>
+                    </div>
+                    <div class="idc-row">
+                        <span class="idc-lbl">Total Spend:</span>
+                        <strong class="idc-val text-primary-color" id="delCustTotalSpend">₹0.00</strong>
+                    </div>
+                </div>
+
+                <div class="delete-choices-container">
+                    <label class="delete-choice-card active" id="custChoice1Card">
+                        <input type="radio" name="custDeleteMode" value="catalog" id="custDeleteModeCatalog" checked>
+                        <div class="choice-content">
+                            <div class="choice-title">
+                                <span>1. Remove from suggestions / catalog only</span>
+                                <span class="choice-badge badge-safe">Recommended</span>
+                            </div>
+                            <p class="choice-desc">
+                                The customer will no longer appear in autocomplete suggestions when creating new bills. All historical invoices, folders, and revenue reports remain completely preserved.
+                            </p>
+                        </div>
+                    </label>
+
+                    <label class="delete-choice-card" id="custChoice2Card">
+                        <input type="radio" name="custDeleteMode" value="permanent" id="custDeleteModePermanent">
+                        <div class="choice-content">
+                            <div class="choice-title">
+                                <span style="color:#DC2626;">2. Permanently delete customer and all invoices</span>
+                                <span class="choice-badge badge-danger">Permanent</span>
+                            </div>
+                            <p class="choice-desc">
+                                Permanently deletes the customer profile, all <strong id="delCustFolderInvsCount">0</strong> invoice files, and the customer's folder in <code id="delCustFolderPreview">Invoice Storage/</code>. Updates all dashboard revenue and product statistics.
+                            </p>
+                            
+                            <div class="permanent-confirm-box" id="custPermanentConfirmBox" style="display: none;">
+                                <label for="confirmCustomerNameInput">
+                                    To confirm permanent deletion, type the customer name: <code class="danger-code" id="targetCustNameMatch">-</code>
+                                </label>
+                                <input type="text" id="confirmCustomerNameInput" class="danger-confirm-input" placeholder="Type exact customer name" autocomplete="off" spellcheck="false">
+                            </div>
+                        </div>
+                    </label>
+                </div>
+            </div>
+
+            <div class="danger-modal-footer">
+                <button type="button" class="btn btn-secondary-modal" id="btnCancelDeleteCustomer">
+                    Cancel
+                </button>
+                <button type="button" class="btn btn-danger-action" id="btnConfirmDeleteCustomer">
+                    Confirm Deletion
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ========================================================
+         MODAL 8: DELETE PRODUCT (TWO CHOICES)
+         ======================================================== -->
+    <div id="deleteProductModal" class="danger-modal-wrapper" style="display: none;">
+        <div class="danger-modal-overlay" id="deleteProductModalOverlay"></div>
+        <div class="danger-modal-dialog danger-modal-lg">
+            <div class="danger-modal-header">
+                <div class="danger-title-row">
+                    <span class="danger-header-icon">📦</span>
+                    <div>
+                        <h2 class="danger-modal-title">Delete Product</h2>
+                        <p class="danger-modal-subtitle" id="delProdTitleName">Product Name</p>
+                    </div>
+                </div>
+                <button type="button" class="danger-close-btn" id="btnCloseDeleteProductModal">✕</button>
+            </div>
+
+            <div class="danger-modal-body">
+                <div class="item-details-card" style="margin-bottom: 16px;">
+                    <div class="idc-row">
+                        <span class="idc-lbl">Product:</span>
+                        <strong class="idc-val" id="delProdName">-</strong>
+                    </div>
+                    <div class="idc-row">
+                        <span class="idc-lbl">Invoices Containing Product:</span>
+                        <strong class="idc-val" id="delProdInvCount">0</strong>
+                    </div>
+                    <div class="idc-row">
+                        <span class="idc-lbl">Total Quantity Sold:</span>
+                        <strong class="idc-val" id="delProdQty">0</strong>
+                    </div>
+                    <div class="idc-row">
+                        <span class="idc-lbl">Total Sales:</span>
+                        <strong class="idc-val text-primary-color" id="delProdSales">₹0.00</strong>
+                    </div>
+                </div>
+
+                <div class="delete-choices-container">
+                    <label class="delete-choice-card active" id="prodChoice1Card">
+                        <input type="radio" name="prodDeleteMode" value="catalog" id="prodDeleteModeCatalog" checked>
+                        <div class="choice-content">
+                            <div class="choice-title">
+                                <span>1. Remove from catalog / autocomplete only</span>
+                                <span class="choice-badge badge-safe">Recommended</span>
+                            </div>
+                            <p class="choice-desc">
+                                The product will no longer appear in autocomplete suggestions when creating new bills. All historical invoices and line item totals remain completely unchanged.
+                            </p>
+                        </div>
+                    </label>
+
+                    <label class="delete-choice-card" id="prodChoice2Card">
+                        <input type="radio" name="prodDeleteMode" value="permanent" id="prodDeleteModePermanent">
+                        <div class="choice-content">
+                            <div class="choice-title">
+                                <span style="color:#DC2626;">2. Permanently delete product data & related references</span>
+                                <span class="choice-badge badge-danger">Permanent</span>
+                            </div>
+                            <p class="choice-desc">
+                                Removes product from catalog, customer purchase history, and removes product references from affected invoices.
+                            </p>
+
+                            <div class="permanent-confirm-box" id="prodPermanentConfirmBox" style="display: none;">
+                                <div class="affected-invoices-preview" id="prodAffectedInvoicesBox">
+                                    <div class="aip-title">Affected Invoices Preview:</div>
+                                    <div class="aip-list" id="prodAffectedInvoicesList">
+                                        <!-- Invoices list rendered here -->
+                                    </div>
+                                </div>
+                                <label for="confirmProdDeleteInput" style="margin-top: 10px;">
+                                    To confirm, type: <code class="danger-code">DELETE PRODUCT DATA</code>
+                                </label>
+                                <input type="text" id="confirmProdDeleteInput" class="danger-confirm-input" placeholder="Type DELETE PRODUCT DATA" autocomplete="off" spellcheck="false">
+                            </div>
+                        </div>
+                    </label>
+                </div>
+            </div>
+
+            <div class="danger-modal-footer">
+                <button type="button" class="btn btn-secondary-modal" id="btnCancelDeleteProduct">
+                    Cancel
+                </button>
+                <button type="button" class="btn btn-danger-action" id="btnConfirmDeleteProduct">
+                    Confirm Deletion
+                </button>
+            </div>
+        </div>
+    </div>
+    </div> <!-- Close #appRoot -->
+
+    <!-- Dedicated print-only invoice container outside the main dashboard/app container -->
+    <div id="printInvoiceRoot"></div>
 
     <script src="script.js"></script>
 </body>
