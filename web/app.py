@@ -80,11 +80,25 @@ def generate_invoice():
         if not products:
             return jsonify({'error': 'No products provided'}), 400
         
+        # Extra charges extraction and validation
+        extra_charges_desc = str(data.get('extraChargesDesc') or data.get('extra_charges_desc') or '').strip()
+        raw_extra_amt = data.get('extraChargesAmount') if data.get('extraChargesAmount') is not None else data.get('extra_charges_amount', 0.0)
+        try:
+            extra_charges_amount = float(raw_extra_amt or 0.0)
+            if extra_charges_amount < 0:
+                return jsonify({'error': 'Extra charges amount cannot be negative'}), 400
+        except (ValueError, TypeError):
+            return jsonify({'error': 'Invalid extra charges amount format'}), 400
+
         # Generate invoice number
         invoice_number = generate_invoice_number()
         
         # Create Excel file and get history data
-        filename, history_data = create_excel_invoice(customer, products, invoice_number, invoice_type)
+        filename, history_data = create_excel_invoice(
+            customer, products, invoice_number, invoice_type,
+            extra_charges_desc=extra_charges_desc,
+            extra_charges_amount=extra_charges_amount
+        )
         
         # Immediately record customer, products, and full invoice in learning database
         try:
@@ -98,9 +112,11 @@ def generate_invoice():
                 products=products,
                 invoice_type=invoice_type,
                 invoice_date=datetime.now(),
-                total_amount=history_data.get('grand_total') if invoice_type == 'all' else None,
+                total_amount=history_data.get('grand_total'),
                 file_path=full_path,
-                filename=filename
+                filename=filename,
+                extra_charges_desc=extra_charges_desc,
+                extra_charges_amount=extra_charges_amount
             )
         except Exception as learn_err:
             print(f"Error learning invoice: {learn_err}")
@@ -532,9 +548,9 @@ def reset_all_data():
         print(f"Error resetting all data: {e}")
         return jsonify({'error': str(e)}), 500
 
-@app.route('/api/invoices/<invoice_number>', methods=['GET', 'DELETE'])
+@app.route('/api/invoices/<invoice_number>', methods=['GET', 'DELETE', 'PUT'])
 def invoice_detail_or_delete_route(invoice_number):
-    """GET single invoice details, or DELETE single invoice safely and recalculate metrics"""
+    """GET single invoice details, DELETE invoice, or PUT to update existing invoice safely"""
     try:
         clean_num = str(invoice_number).strip() if invoice_number else ''
         if not clean_num or '..' in clean_num or '/' in clean_num or '\\' in clean_num:
@@ -545,6 +561,118 @@ def invoice_detail_or_delete_route(invoice_number):
             if not inv:
                 return jsonify({'error': f'Invoice {clean_num} not found'}), 404
             return jsonify({'success': True, 'invoice': inv})
+
+        if request.method == 'PUT':
+            data = request.get_json() or {}
+            customer = data.get('customer') or {}
+            products = data.get('products') or []
+            invoice_type = data.get('invoiceType', 'current')
+
+            new_shop_name = str(customer.get('shopName') or data.get('customerName') or data.get('shopName') or '').strip()
+            new_area = str(customer.get('area') or data.get('area') or '').strip()
+            if not new_shop_name:
+                return jsonify({'error': 'Customer / Shop Name cannot be blank'}), 400
+            if not new_area:
+                return jsonify({'error': 'Area / Location cannot be blank'}), 400
+            if not products or not isinstance(products, list):
+                return jsonify({'error': 'Invoice must contain at least one product'}), 400
+
+            cleaned_prods = []
+            for idx, p in enumerate(products):
+                p_name = str(p.get('name') or p.get('productName') or '').strip()
+                if not p_name:
+                    return jsonify({'error': f'Product name cannot be empty in item #{idx+1}'}), 400
+                try:
+                    qty = float(p.get('quantity', 0))
+                    if qty <= 0:
+                        return jsonify({'error': f'Quantity must be greater than 0 for "{p_name}"'}), 400
+                except (ValueError, TypeError):
+                    return jsonify({'error': f'Invalid quantity for "{p_name}"'}), 400
+                try:
+                    price_val = p.get('price') if p.get('price') is not None else p.get('unitPrice', 0)
+                    price = float(price_val if price_val is not None else 0)
+                    if price < 0:
+                        return jsonify({'error': f'Price cannot be negative for "{p_name}"'}), 400
+                except (ValueError, TypeError):
+                    return jsonify({'error': f'Invalid price for "{p_name}"'}), 400
+
+                cleaned_prods.append({
+                    'productName': p_name,
+                    'name': p_name,
+                    'quantity': qty,
+                    'price': price,
+                    'unitPrice': price
+                })
+
+            existing = learning_db.get_invoice_detail(clean_num)
+            if not existing:
+                return jsonify({'error': f'Invoice {clean_num} not found'}), 404
+
+            old_customer_name = existing.get('customerName', '')
+            old_filename = existing.get('filename', '')
+            old_filepath = existing.get('filePath', '')
+            original_date = existing.get('date')
+
+            # Clean up old file from old customer folder if customer changed
+            if old_customer_name and learning_db.normalize_text(old_customer_name) != learning_db.normalize_text(new_shop_name):
+                if INVOICE_STORAGE_DIR.exists():
+                    clean_old_cust = re.sub(r'[\\/*?:"<>|]', "", old_customer_name.strip())
+                    old_cust_dir = (INVOICE_STORAGE_DIR / clean_old_cust).resolve()
+                    if old_cust_dir.exists() and old_cust_dir.is_relative_to(INVOICE_STORAGE_DIR):
+                        for stem in [clean_num, Path(old_filename).stem if old_filename else clean_num]:
+                            for ext in ['.xlsx', '.xls', '.pdf']:
+                                old_file = old_cust_dir / f"{stem}{ext}"
+                                if old_file.exists() and old_file.is_file():
+                                    try:
+                                        old_file.unlink()
+                                    except Exception as e:
+                                        print(f"Warning cleaning old file {old_file}: {e}")
+
+            # Extra charges extraction and validation
+            extra_charges_desc = str(data.get('extraChargesDesc') if data.get('extraChargesDesc') is not None else (data.get('extra_charges_desc') or '')).strip()
+            raw_extra_amt = data.get('extraChargesAmount') if data.get('extraChargesAmount') is not None else data.get('extra_charges_amount', 0.0)
+            try:
+                extra_charges_amount = float(raw_extra_amt or 0.0)
+                if extra_charges_amount < 0:
+                    return jsonify({'error': 'Extra charges amount cannot be negative'}), 400
+            except (ValueError, TypeError):
+                return jsonify({'error': 'Invalid extra charges amount format'}), 400
+
+            # Regenerate Excel file in updated customer folder with original date
+            new_customer_obj = {'shopName': new_shop_name, 'area': new_area}
+            new_filename, history_data = create_excel_invoice(
+                new_customer_obj, cleaned_prods, clean_num, invoice_type,
+                invoice_date=original_date, is_edit=True,
+                extra_charges_desc=extra_charges_desc,
+                extra_charges_amount=extra_charges_amount
+            )
+            new_customer_dir = get_or_create_customer_dir(new_shop_name)
+            new_full_path = str(new_customer_dir / new_filename)
+
+            # Update database records, metrics, and audit history
+            updated_inv = learning_db.update_invoice_record(
+                invoice_number=clean_num,
+                customer=new_customer_obj,
+                products=cleaned_prods,
+                invoice_type=invoice_type,
+                new_file_path=new_full_path,
+                new_filename=new_filename,
+                storage_dir=INVOICE_STORAGE_DIR,
+                extra_charges_desc=extra_charges_desc,
+                extra_charges_amount=extra_charges_amount
+            )
+
+            # Rebuild recommendations engine
+            recommendation_engine.rebuild_from_db()
+
+            return jsonify({
+                'success': True,
+                'message': f'Invoice {clean_num} updated successfully',
+                'invoice': updated_inv,
+                'invoice_number': clean_num,
+                'filename': new_filename,
+                'download_url': f'/api/download/{new_filename}'
+            })
 
         # DELETE request
         res = learning_db.delete_invoice_by_number(clean_num, storage_dir=INVOICE_STORAGE_DIR)
@@ -825,7 +953,7 @@ def load_customer_history(customer_dir: Path):
             
     return previous_orders
 
-def build_invoice_workbook(customer, products, invoice_number, current_date, invoice_type='current', previous_orders=None):
+def build_invoice_workbook(customer, products, invoice_number, current_date, invoice_type='current', previous_orders=None, extra_charges_desc='', extra_charges_amount=0.0):
     """Build a professional Excel workbook representing this invoice."""
     if previous_orders is None:
         previous_orders = []
@@ -939,13 +1067,13 @@ def build_invoice_workbook(customer, products, invoice_number, current_date, inv
         c.border = thin_border
     row += 1
     
-    current_order_total = 0
+    product_subtotal = 0.0
     for p in products:
         p_name = str(p.get('name') or p.get('productName') or '')
         p_qty = int(p.get('quantity', 0))
         p_price = float(p.get('price') if p.get('price') is not None else p.get('unitPrice', 0))
         p_total = float(p.get('total') if p.get('total') is not None else (p_qty * p_price))
-        current_order_total += p_total
+        product_subtotal += p_total
         ws.cell(row=row, column=1, value=p_name)
         c_qty = ws.cell(row=row, column=2, value=p_qty)
         c_qty.alignment = Alignment(horizontal='center')
@@ -960,8 +1088,36 @@ def build_invoice_workbook(customer, products, invoice_number, current_date, inv
             ws.cell(row=row, column=c_idx).font = normal_font
         row += 1
         
+    clean_extra_amt = float(extra_charges_amount or 0.0)
+    clean_extra_desc = str(extra_charges_desc or '').strip()
+    if not clean_extra_desc:
+        clean_extra_desc = "Extra Charges"
+
+    # If extra charges exist, write Subtotal and Extra Charges rows
+    if clean_extra_amt > 0:
+        ws.cell(row=row, column=2, value="Product Subtotal:").font = bold_font
+        ws.cell(row=row, column=2).alignment = Alignment(horizontal='right')
+        c_sub = ws.cell(row=row, column=4, value=product_subtotal)
+        c_sub.font = bold_font
+        c_sub.alignment = Alignment(horizontal='right')
+        c_sub.number_format = '"₹"#,##0.00'
+        c_sub.border = thin_border
+        row += 1
+
+        ws.cell(row=row, column=2, value=f"{clean_extra_desc}:").font = bold_font
+        ws.cell(row=row, column=2).alignment = Alignment(horizontal='right')
+        c_ext = ws.cell(row=row, column=4, value=clean_extra_amt)
+        c_ext.font = bold_font
+        c_ext.alignment = Alignment(horizontal='right')
+        c_ext.number_format = '"₹"#,##0.00'
+        c_ext.border = thin_border
+        row += 1
+
+    current_order_total = product_subtotal + clean_extra_amt
+
     # Current Order Total Row
-    ws.cell(row=row, column=2, value="Current Order Total:").font = bold_font
+    order_total_label = "Current Order Total:" if (invoice_type == 'all' and previous_orders) else "Grand Total:"
+    ws.cell(row=row, column=2, value=order_total_label).font = bold_font
     ws.cell(row=row, column=2).alignment = Alignment(horizontal='right')
     c_tot = ws.cell(row=row, column=4, value=current_order_total)
     c_tot.font = total_font
@@ -996,18 +1152,32 @@ def build_invoice_workbook(customer, products, invoice_number, current_date, inv
     
     return wb, current_order_total, grand_total
 
-def create_excel_invoice(customer, products, invoice_number, invoice_type='current'):
+def create_excel_invoice(customer, products, invoice_number, invoice_type='current', invoice_date=None, is_edit=False, extra_charges_desc='', extra_charges_amount=0.0):
     """
     Create customer-wise invoice and store inside customer-specific folder in Invoice Storage.
     Supports both 'current' and 'all' (with history).
     """
     shop_name = customer.get('shopName', '').strip()
     customer_dir = get_or_create_customer_dir(shop_name)
-    current_date = datetime.now().strftime('%d/%m/%Y')
+    
+    if invoice_date:
+        if isinstance(invoice_date, datetime):
+            current_date = invoice_date.strftime('%d/%m/%Y')
+        else:
+            try:
+                parsed_dt = datetime.fromisoformat(str(invoice_date).replace('Z', ''))
+                current_date = parsed_dt.strftime('%d/%m/%Y')
+            except Exception:
+                current_date = str(invoice_date)
+    else:
+        current_date = datetime.now().strftime('%d/%m/%Y')
     
     # If 'all', load history strictly from this customer's folder
     if invoice_type == 'all':
         previous_orders = load_customer_history(customer_dir)
+        if is_edit:
+            # Filter out this existing invoice from previous orders to prevent double-counting
+            previous_orders = [o for o in previous_orders if str(o.get('order_number', '')).strip() != str(invoice_number).strip()]
     else:
         previous_orders = []
         
@@ -1018,15 +1188,16 @@ def create_excel_invoice(customer, products, invoice_number, invoice_type='curre
     filename = f"{safe_inv}.xlsx"
     target_path = customer_dir / filename
     
-    # Ensure unique filename if conflict
-    if target_path.exists():
+    # Only append timestamp suffix if creating new and conflict exists, not when editing this invoice
+    if not is_edit and target_path.exists():
         timestamp_suffix = datetime.now().strftime('%Y%m%d_%H%M%S')
         filename = f"{safe_inv}_{timestamp_suffix}.xlsx"
         target_path = customer_dir / filename
         
     # Build Excel workbook
     wb, current_total, grand_total = build_invoice_workbook(
-        customer, products, invoice_number, current_date, invoice_type, previous_orders
+        customer, products, invoice_number, current_date, invoice_type, previous_orders,
+        extra_charges_desc=extra_charges_desc, extra_charges_amount=extra_charges_amount
     )
     
     # Save into customer's dedicated folder
@@ -1041,8 +1212,13 @@ def create_excel_invoice(customer, products, invoice_number, invoice_type='curre
     order_count = (len(previous_orders) + 1) if (invoice_type == 'all' and previous_orders) else 1
     first_date = previous_orders[0]['date'] if (invoice_type == 'all' and previous_orders) else current_date
     
+    clean_extra_amt = float(extra_charges_amount or 0.0)
     history_data = {
         'previous_orders': previous_orders if invoice_type == 'all' else [],
+        'product_subtotal': current_total - clean_extra_amt,
+        'extra_charges_desc': extra_charges_desc or '',
+        'extra_charges_amount': clean_extra_amt,
+        'current_order_total': current_total,
         'grand_total': grand_total,
         'order_count': order_count,
         'first_order_date': first_date,

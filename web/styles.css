@@ -749,10 +749,123 @@ body {
 .text-right { text-align: right; }
 
 /* ==========================================================================
-   Total Amount Card
+   Total Amount Card & Extra Charges
    ========================================================================== */
 .total-section {
     margin-top: 10px;
+}
+
+/* Extra Charges Card (Create Invoice) */
+.extra-charges-card {
+    background: #F8FAFC;
+    border: 1px solid #E2E8F0;
+    border-radius: var(--radius-md);
+    padding: 16px 20px;
+    margin-bottom: 12px;
+    transition: var(--transition);
+}
+
+.extra-charges-card:focus-within {
+    border-color: #C7D2FE;
+    background: #FBFBFF;
+    box-shadow: 0 2px 8px rgba(79, 70, 229, 0.06);
+}
+
+.extra-charges-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 12px;
+}
+
+.extra-charges-title-block {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.extra-charges-icon {
+    font-size: 1.1rem;
+}
+
+.extra-charges-title {
+    font-size: 0.95rem;
+    font-weight: 700;
+    color: #1E293B;
+}
+
+.extra-charges-subtitle {
+    display: block;
+    font-size: 0.76rem;
+    color: #64748B;
+}
+
+.extra-charges-badge {
+    font-size: 0.72rem;
+    font-weight: 600;
+    padding: 2px 8px;
+    border-radius: 999px;
+    background: #EEF2FF;
+    color: #4F46E5;
+}
+
+.extra-charges-form-row {
+    display: grid;
+    grid-template-columns: 2fr 1fr;
+    gap: 14px;
+}
+
+@media (max-width: 640px) {
+    .extra-charges-form-row {
+        grid-template-columns: 1fr;
+    }
+}
+
+.ec-label {
+    display: block;
+    font-size: 0.78rem;
+    font-weight: 600;
+    color: #475569;
+    margin-bottom: 5px;
+}
+
+.ec-input {
+    width: 100%;
+    padding: 9px 12px;
+    border: 1px solid #CBD5E1;
+    border-radius: 6px;
+    font-size: 0.9rem;
+    color: #0F172A;
+    background: #FFFFFF;
+    transition: var(--transition);
+    box-sizing: border-box;
+}
+
+.ec-input:focus {
+    border-color: #4F46E5;
+    outline: none;
+    box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.12);
+}
+
+.ec-amt-input-wrap {
+    position: relative;
+    display: flex;
+    align-items: center;
+}
+
+.ec-currency-prefix {
+    position: absolute;
+    left: 12px;
+    font-weight: 700;
+    color: #64748B;
+    pointer-events: none;
+    font-size: 0.9rem;
+}
+
+.ec-input-amount {
+    padding-left: 26px !important;
+    text-align: right;
+    font-weight: 600;
 }
 
 .total-card {
@@ -777,9 +890,43 @@ body {
     color: var(--primary-hover);
 }
 
-.total-subtitle {
+.total-breakdown-details {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    margin-top: 4px;
+}
+
+.tb-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
     font-size: 0.82rem;
-    color: var(--text-muted);
+    color: #475569;
+}
+
+.tb-label {
+    font-weight: 500;
+}
+
+.tb-val {
+    font-weight: 700;
+    color: #1E293B;
+}
+
+.tb-extra {
+    color: #4F46E5 !important;
+}
+
+.grand-total-tag {
+    display: block;
+    font-size: 0.75rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: #4F46E5;
+    text-align: right;
+    margin-bottom: 2px;
 }
 
 .total-amount {
@@ -3674,6 +3821,286 @@ body {
     height: 16px;
     cursor: pointer;
     accent-color: #4F46E5;
+}
+
+/* --- Edit Invoice Modal Styles --- */
+.btn-action.action-edit:hover {
+    background: #4F46E5;
+    border-color: #4F46E5;
+    color: #FFFFFF;
+}
+
+.edit-invoice-modal-dialog {
+    width: 740px !important;
+    max-width: 95vw !important;
+    border-color: #C7D2FE !important;
+}
+
+.invoice-num-locked-badge {
+    background: #EEF2FF;
+    color: #4338CA;
+    border: 1px solid #C7D2FE;
+    padding: 3px 8px;
+    border-radius: 6px;
+    font-size: 0.8rem;
+    font-weight: 700;
+    font-family: monospace;
+}
+
+.edit-modal-scroll-body {
+    max-height: 75vh;
+    overflow-y: auto;
+    padding: 20px 24px;
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+}
+
+.edit-form-grid {
+    display: grid;
+    grid-template-columns: 1.2fr 1fr 1fr;
+    gap: 14px;
+}
+
+@media (max-width: 640px) {
+    .edit-form-grid {
+        grid-template-columns: 1fr;
+    }
+}
+
+.edit-form-group {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.edit-form-group label {
+    font-size: 0.82rem;
+    font-weight: 600;
+    color: #334155;
+}
+
+.edit-items-section {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.edit-items-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+
+.edit-section-title {
+    font-size: 0.96rem;
+    font-weight: 700;
+    color: #1E293B;
+}
+
+.edit-products-table th {
+    background: #F8FAFC;
+    color: #475569;
+    font-size: 0.78rem;
+    font-weight: 700;
+    padding: 8px 10px;
+}
+
+.edit-products-table td {
+    padding: 6px 10px;
+    vertical-align: middle;
+}
+
+.edit-prod-input,
+.edit-qty-input,
+.edit-price-input {
+    width: 100%;
+    padding: 6px 10px;
+    border: 1px solid #CBD5E1;
+    border-radius: 6px;
+    font-size: 0.85rem;
+    color: #0F172A;
+    background: #FFFFFF;
+    transition: border-color 0.15s;
+    box-sizing: border-box;
+}
+
+.edit-prod-input:focus,
+.edit-qty-input:focus,
+.edit-price-input:focus {
+    border-color: #4F46E5;
+    outline: none;
+    box-shadow: 0 0 0 2px rgba(79, 70, 229, 0.15);
+}
+
+.edit-line-total {
+    font-weight: 700;
+    color: #0F172A;
+    font-size: 0.88rem;
+    text-align: right;
+    display: block;
+}
+
+.btn-remove-row {
+    background: #FEF2F2;
+    border: 1px solid #FECACA;
+    color: #DC2626;
+    border-radius: 6px;
+    width: 28px;
+    height: 28px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    font-size: 0.85rem;
+    transition: all 0.15s ease;
+    margin: 0 auto;
+}
+
+.btn-remove-row:hover {
+    background: #DC2626;
+    color: #FFFFFF;
+}
+
+/* Extra Charges in Edit Invoice Modal */
+.edit-extra-charges-card {
+    background: #F8FAFC;
+    border: 1px solid #E2E8F0;
+    border-radius: 8px;
+    padding: 12px 16px;
+    margin-top: 4px;
+}
+
+.edit-ec-title-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-bottom: 10px;
+}
+
+.edit-ec-icon {
+    font-size: 1rem;
+}
+
+.edit-ec-title {
+    font-size: 0.88rem;
+    font-weight: 700;
+    color: #1E293B;
+}
+
+.edit-ec-pill {
+    font-size: 0.7rem;
+    font-weight: 600;
+    padding: 1px 6px;
+    border-radius: 999px;
+    background: #EEF2FF;
+    color: #4F46E5;
+}
+
+.edit-ec-grid {
+    display: grid;
+    grid-template-columns: 2fr 1fr;
+    gap: 12px;
+}
+
+@media (max-width: 600px) {
+    .edit-ec-grid {
+        grid-template-columns: 1fr;
+    }
+}
+
+.edit-ec-label {
+    display: block;
+    font-size: 0.78rem;
+    font-weight: 600;
+    color: #475569;
+    margin-bottom: 4px;
+}
+
+.edit-ec-amt-wrap {
+    position: relative;
+    display: flex;
+    align-items: center;
+}
+
+.edit-ec-prefix {
+    position: absolute;
+    left: 10px;
+    font-weight: 700;
+    color: #64748B;
+    pointer-events: none;
+    font-size: 0.85rem;
+}
+
+.edit-ec-amt-wrap .edit-price-input {
+    padding-left: 24px !important;
+}
+
+.edit-totals-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    background: #F8FAFC;
+    border: 1px solid #E2E8F0;
+    border-radius: 8px;
+    padding: 10px 16px;
+    font-size: 0.88rem;
+    gap: 12px;
+}
+
+@media (max-width: 640px) {
+    .edit-totals-bar {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 8px;
+    }
+}
+
+.etb-left {
+    color: #64748B;
+    font-weight: 500;
+}
+
+.etb-middle {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+}
+
+.etb-calc-item {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 0.84rem;
+}
+
+.etb-sub-lbl {
+    color: #64748B;
+}
+
+.etb-sub-val {
+    font-weight: 700;
+    color: #1E293B;
+}
+
+.etb-extra-val {
+    color: #4F46E5 !important;
+}
+
+.etb-right {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.etb-label {
+    color: #334155;
+    font-weight: 600;
+}
+
+.etb-amount {
+    font-size: 1.15rem;
+    font-weight: 800;
 }
 
 /* Dedicated Print-Only Invoice Container (Hidden during normal screen UI) */

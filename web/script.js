@@ -140,6 +140,9 @@ document.addEventListener('DOMContentLoaded', function() {
     // --- Delete Modals & Bulk Actions ---
     initDeleteModals();
 
+    // --- Edit Invoice Modal ---
+    initEditInvoiceModal();
+
     // Load initial dashboard
     loadDashboard('30d');
     
@@ -214,12 +217,23 @@ document.addEventListener('DOMContentLoaded', function() {
     const modalOverlay = document.getElementById('modalOverlay');
     if (modalOverlay) modalOverlay.addEventListener('click', closeInvoiceModal);
 
+    // Extra Charges input listeners for live total recalculation
+    const extraChargesAmountInput = document.getElementById('extraChargesAmount');
+    const extraChargesDescInput = document.getElementById('extraChargesDesc');
+    if (extraChargesAmountInput) extraChargesAmountInput.addEventListener('input', updateTotal);
+    if (extraChargesDescInput) extraChargesDescInput.addEventListener('input', updateTotal);
+
     document.addEventListener('keydown', function(e) {
         if (e.key === 'Escape') {
             closeInvoiceModal();
             closeCustomerModal();
             closeProductModal();
             closeResetModal();
+            closeDeleteInvoiceModal();
+            closeBulkDeleteModal();
+            closeDeleteCustomerModal();
+            closeDeleteProductModal();
+            closeEditInvoiceModal();
         }
     });
 });
@@ -334,24 +348,52 @@ function removeProduct(productId) {
     showStatus('Product removed', 'info');
 }
 
-// Update total amount
+// Update total amount and live breakdown with Extra Charges
 function updateTotal() {
-    const total = products.reduce((sum, product) => sum + product.total, 0);
-    totalAmount.textContent = `₹${total.toFixed(2)}`;
+    const subtotal = products.reduce((sum, product) => sum + product.total, 0);
+    const extraAmtInput = document.getElementById('extraChargesAmount');
+    const extraDescInput = document.getElementById('extraChargesDesc');
+    const extraAmt = parseFloat(extraAmtInput?.value) || 0;
+    const extraDesc = (extraDescInput?.value || '').trim() || 'Extra Charges';
+    const grandTotal = subtotal + (extraAmt > 0 ? extraAmt : 0);
+
+    const subtotalEl = document.getElementById('productSubtotalDisplay');
+    const extraRowEl = document.getElementById('extraChargesDisplayRow');
+    const extraLabelEl = document.getElementById('extraChargesDisplayLabel');
+    const extraAmountEl = document.getElementById('extraChargesDisplayAmount');
+
+    if (subtotalEl) subtotalEl.textContent = `₹${formatIndianCurrency(subtotal)}`;
+    if (extraRowEl) {
+        if (extraAmt > 0) {
+            extraRowEl.style.display = 'flex';
+            if (extraLabelEl) extraLabelEl.textContent = `${extraDesc}:`;
+            if (extraAmountEl) extraAmountEl.textContent = `+₹${formatIndianCurrency(extraAmt)}`;
+        } else {
+            extraRowEl.style.display = 'none';
+        }
+    }
+
+    if (totalAmount) totalAmount.textContent = `₹${formatIndianCurrency(grandTotal)}`;
 }
 
 // Clear all function
 function clearAll() {
-    if (products.length === 0) {
-        showStatus('No products to clear', 'info');
+    const extraAmtVal = document.getElementById('extraChargesAmount')?.value;
+    const hasExtra = (extraAmtVal && extraAmtVal !== '0.00' && extraAmtVal !== '0' && parseFloat(extraAmtVal) > 0) || (document.getElementById('extraChargesDesc')?.value || '').trim();
+    if (products.length === 0 && !hasExtra) {
+        showStatus('No products or extra charges to clear', 'info');
         return;
     }
     
-    if (confirm('Are you sure you want to clear all products?')) {
+    if (confirm('Are you sure you want to clear all products and extra charges?')) {
         products = [];
+        const extraDescInput = document.getElementById('extraChargesDesc');
+        const extraAmtInput = document.getElementById('extraChargesAmount');
+        if (extraDescInput) extraDescInput.value = '';
+        if (extraAmtInput) extraAmtInput.value = '0.00';
         updateProductsList();
         updateTotal();
-        showStatus('All products cleared', 'info');
+        showStatus('All products and extra charges cleared', 'info');
         productNameInput.focus();
     }
 }
@@ -466,6 +508,18 @@ async function generateInvoice() {
             year: 'numeric'
         });
         
+        const extraChargesDesc = (document.getElementById('extraChargesDesc')?.value || '').trim();
+        const extraChargesAmount = parseFloat(document.getElementById('extraChargesAmount')?.value) || 0.0;
+        if (extraChargesAmount < 0) {
+            showToast('Extra charges amount cannot be negative', 'error');
+            showStatus('Extra charges amount cannot be negative', 'error');
+            showLoading(false);
+            return;
+        }
+
+        const productSubtotal = products.reduce((sum, p) => sum + p.total, 0);
+        const grandTotal = productSubtotal + (extraChargesAmount > 0 ? extraChargesAmount : 0);
+
         const invoiceData = {
             customer: {
                 shopName: shopName,
@@ -474,7 +528,10 @@ async function generateInvoice() {
             products: JSON.parse(JSON.stringify(products)),
             invoiceNumber: generateInvoiceNumber(),
             date: formattedDate,
-            total: products.reduce((sum, p) => sum + p.total, 0),
+            total: grandTotal,
+            productSubtotal: productSubtotal,
+            extraChargesDesc: extraChargesDesc,
+            extraChargesAmount: extraChargesAmount,
             invoiceType: invoiceType
         };
         
@@ -555,15 +612,20 @@ function renderInvoiceHTML(invoiceData, historyData) {
                       historyData.previous_orders &&
                       historyData.previous_orders.length > 0;
                       
-    const currentTotal = products.reduce((sum, p) => sum + (Number(p.total) || 0), 0);
+    const productSubtotal = products.reduce((sum, p) => sum + (Number(p.total) || 0), 0);
     const totalQty = products.reduce((sum, p) => sum + (Number(p.quantity) || 0), 0);
     
+    const extraChargesAmt = Number(invoiceData.extraChargesAmount !== undefined ? invoiceData.extraChargesAmount : ((historyData && historyData.extra_charges_amount) || 0));
+    const extraChargesDesc = String(invoiceData.extraChargesDesc || (historyData && historyData.extra_charges_desc) || '').trim();
+    const hasExtraCharges = extraChargesAmt > 0;
+    const currentOrderTotal = productSubtotal + (hasExtraCharges ? extraChargesAmt : 0);
+
     let prevTotal = 0;
     if (isHistory) {
         prevTotal = historyData.previous_orders.reduce((sum, ord) => sum + (Number(ord.total) || 0), 0);
     }
     
-    const finalGrandTotal = isHistory ? (historyData.grand_total || (prevTotal + currentTotal)) : currentTotal;
+    const finalGrandTotal = isHistory ? (historyData.grand_total || (prevTotal + currentOrderTotal)) : currentOrderTotal;
     const amountInWords = numberToIndianWords(finalGrandTotal);
     
     // Product rows
@@ -716,9 +778,23 @@ function renderInvoiceHTML(invoiceData, historyData) {
                                     Total Items: <strong>${products.length}</strong>
                                 </td>
                                 <td class="text-center font-bold qty-highlight">${totalQty}</td>
-                                <td class="text-right font-semibold">Current Order Total:</td>
-                                <td class="text-right font-bold amount-highlight">₹${formatIndianCurrency(currentTotal)}</td>
+                                <td class="text-right font-semibold">${hasExtraCharges ? 'Product Subtotal:' : 'Current Order Total:'}</td>
+                                <td class="text-right font-bold amount-highlight">₹${formatIndianCurrency(productSubtotal)}</td>
                             </tr>
+                            ${hasExtraCharges ? `
+                            <tr class="tfoot-extra-charges" style="background: #F8FAFC;">
+                                <td colspan="3" class="text-left" style="color: #4F46E5; font-weight: 600; font-size: 11px;">
+                                    🚚 ${escapeHtml(extraChargesDesc || 'Extra Charges')}
+                                </td>
+                                <td class="text-right font-semibold" style="color: #4F46E5;">${escapeHtml(extraChargesDesc || 'Extra Charges')}:</td>
+                                <td class="text-right font-bold" style="color: #4F46E5;">₹${formatIndianCurrency(extraChargesAmt)}</td>
+                            </tr>
+                            <tr class="tfoot-order-total" style="background: #EEF2FF;">
+                                <td colspan="3"></td>
+                                <td class="text-right font-bold" style="color: #1E1B4B;">Current Order Total:</td>
+                                <td class="text-right font-bold" style="color: #1E1B4B; font-size: 13px;">₹${formatIndianCurrency(currentOrderTotal)}</td>
+                            </tr>
+                            ` : ''}
                         </tfoot>
                     </table>
                 </div>
@@ -734,9 +810,19 @@ function renderInvoiceHTML(invoiceData, historyData) {
 
                     <div class="fin-right-col">
                         <table class="totals-table">
+                            ${hasExtraCharges ? `
+                            <tr>
+                                <td class="t-lbl">Product Subtotal:</td>
+                                <td class="t-val">₹${formatIndianCurrency(productSubtotal)}</td>
+                            </tr>
+                            <tr>
+                                <td class="t-lbl">${escapeHtml(extraChargesDesc || 'Extra Charges')}:</td>
+                                <td class="t-val" style="color: #4F46E5; font-weight: 700;">+₹${formatIndianCurrency(extraChargesAmt)}</td>
+                            </tr>
+                            ` : ''}
                             <tr>
                                 <td class="t-lbl">Current Order Total:</td>
-                                <td class="t-val">₹${formatIndianCurrency(currentTotal)}</td>
+                                <td class="t-val">₹${formatIndianCurrency(currentOrderTotal)}</td>
                             </tr>
                             ${isHistory ? `
                             <tr>
@@ -891,6 +977,13 @@ function shareViaWhatsApp() {
         text += `${i + 1}. ${p.name} - ${p.quantity} x ₹${formatIndianCurrency(p.price)} = ₹${formatIndianCurrency(p.total)}\n`;
     });
     text += `--------------------------------\n`;
+    const extraChargesAmt = Number(currentInvoiceData.extraChargesAmount || (currentHistoryData && currentHistoryData.extra_charges_amount) || 0);
+    const extraChargesDesc = String(currentInvoiceData.extraChargesDesc || (currentHistoryData && currentHistoryData.extra_charges_desc) || '').trim();
+    if (extraChargesAmt > 0) {
+        const subtotal = productsList.reduce((s, p) => s + (Number(p.total) || 0), 0);
+        text += `*Product Subtotal:* ₹${formatIndianCurrency(subtotal)}\n`;
+        text += `*${extraChargesDesc || 'Extra Charges'}:* ₹${formatIndianCurrency(extraChargesAmt)}\n`;
+    }
     if (isHistory) {
         text += `*Current Order Total:* ₹${formatIndianCurrency(currentInvoiceData.total)}\n`;
         text += `*CUMULATIVE GRAND TOTAL:* ₹${formatIndianCurrency(finalGrandTotal)}\n`;
@@ -1942,6 +2035,9 @@ function renderRecentInvoices(invoices) {
                         <button type="button" class="btn-action" title="Preview Tax Invoice" onclick="previewInvoiceByNumber('${escapeHtml(inv.invoiceNumber)}')">
                             👁️
                         </button>
+                        <button type="button" class="btn-action action-edit" title="Edit Invoice" data-action="edit-invoice" data-invoice-number="${escapeHtml(inv.invoiceNumber)}" onclick="openEditInvoiceModal('${escapeHtml(inv.invoiceNumber)}')">
+                            ✏️
+                        </button>
                         <button type="button" class="btn-action" title="Print Invoice" onclick="previewInvoiceByNumber('${escapeHtml(inv.invoiceNumber)}', true)">
                             🖨️
                         </button>
@@ -2096,6 +2192,9 @@ async function loadInvoicesTable() {
                             <div class="action-btn-group">
                                 <button type="button" class="btn-action" title="Preview Tax Invoice" onclick="previewInvoiceByNumber('${escapeHtml(inv.invoiceNumber)}')">
                                     👁️ Preview
+                                </button>
+                                <button type="button" class="btn-action action-edit" title="Edit Invoice" data-action="edit-invoice" data-invoice-number="${escapeHtml(inv.invoiceNumber)}" onclick="openEditInvoiceModal('${escapeHtml(inv.invoiceNumber)}')">
+                                    ✏️ Edit
                                 </button>
                                 <button type="button" class="btn-action" title="Print Invoice" onclick="previewInvoiceByNumber('${escapeHtml(inv.invoiceNumber)}', true)">
                                     🖨️ Print
@@ -2534,6 +2633,9 @@ async function previewInvoiceByNumber(invoiceNumber, autoPrint = false) {
         }
 
         const inv = data.invoice;
+        const extraChargesAmount = Number(inv.extraChargesAmount || 0);
+        const extraChargesDesc = String(inv.extraChargesDesc || '').trim();
+        const productSubtotal = inv.productSubtotal !== undefined ? Number(inv.productSubtotal) : (inv.totalAmount - extraChargesAmount);
         const invoiceData = {
             customer: {
                 shopName: inv.customerName,
@@ -2543,6 +2645,9 @@ async function previewInvoiceByNumber(invoiceNumber, autoPrint = false) {
             invoiceNumber: inv.invoiceNumber,
             date: inv.dateFormatted || inv.date,
             total: inv.totalAmount,
+            productSubtotal: productSubtotal,
+            extraChargesDesc: extraChargesDesc,
+            extraChargesAmount: extraChargesAmount,
             invoiceType: inv.invoiceType
         };
 
@@ -2756,8 +2861,19 @@ function setupInvoicesTableDelegation() {
         }
     });
 
-    // 2. Delegated Click for delete buttons
+    // 2. Delegated Click for edit buttons
     table.addEventListener('click', function(e) {
+        const editBtn = e.target.closest('.action-edit, [data-action="edit-invoice"]');
+        if (editBtn) {
+            e.preventDefault();
+            e.stopPropagation();
+            const invNumber = (editBtn.getAttribute('data-invoice-number') || editBtn.getAttribute('data-id') || editBtn.getAttribute('data-invoice-id') || '').trim();
+            if (invNumber) {
+                openEditInvoiceModal(invNumber);
+            }
+            return;
+        }
+
         const deleteBtn = e.target.closest('.action-delete, [data-action="delete-invoice"]');
         if (deleteBtn) {
             e.preventDefault();
@@ -2779,6 +2895,17 @@ function setupRecentInvoicesDelegation() {
     tbody.dataset.delegationAttached = 'true';
 
     tbody.addEventListener('click', function(e) {
+        const editBtn = e.target.closest('.action-edit, [data-action="edit-invoice"]');
+        if (editBtn) {
+            e.preventDefault();
+            e.stopPropagation();
+            const invNumber = (editBtn.getAttribute('data-invoice-number') || editBtn.getAttribute('data-id') || '').trim();
+            if (invNumber) {
+                openEditInvoiceModal(invNumber);
+            }
+            return;
+        }
+
         const deleteBtn = e.target.closest('.action-delete, [data-action="delete-invoice"]');
         if (deleteBtn) {
             e.preventDefault();
@@ -3421,4 +3548,414 @@ function initDeleteModals() {
     window.getSelectedInvoiceNumbers = getSelectedInvoiceNumbers;
     window.setupInvoicesTableDelegation = setupInvoicesTableDelegation;
     window.updateAppBadges = updateAppBadges;
+}
+
+// ========================================================
+// EDIT INVOICE CONTROLLER & MODAL
+// ========================================================
+
+let pendingEditInvoiceNumber = null;
+let editRowCounter = 0;
+
+// Open Edit Invoice Modal and populate with live saved invoice data
+async function openEditInvoiceModal(invNumber) {
+    if (!invNumber) return;
+    const cleanNum = String(invNumber).trim();
+    if (!cleanNum) return;
+
+    pendingEditInvoiceNumber = cleanNum;
+
+    const modal = document.getElementById('editInvoiceModal');
+    const badge = document.getElementById('editModalInvoiceNumBadge');
+    const custInput = document.getElementById('editCustomerName');
+    const areaInput = document.getElementById('editCustomerArea');
+    const typeSelect = document.getElementById('editInvoiceType');
+    const tbody = document.getElementById('editProductsTableBody');
+
+    if (badge) badge.textContent = cleanNum;
+    if (custInput) custInput.value = 'Loading...';
+    if (areaInput) areaInput.value = '';
+    if (tbody) tbody.innerHTML = '<tr><td colspan="5" class="loading-state" style="text-align:center; padding:20px; color:#64748B;">Loading invoice data...</td></tr>';
+
+    if (modal) modal.style.display = 'flex';
+
+    try {
+        const res = await fetch(`/api/invoices/${encodeURIComponent(cleanNum)}`);
+        const data = await res.json();
+
+        if (!data.success || !data.invoice) {
+            throw new Error(data.error || 'Failed to fetch invoice details');
+        }
+
+        const inv = data.invoice;
+        if (custInput) custInput.value = inv.customerName || '';
+        if (areaInput) areaInput.value = inv.area || '';
+        if (typeSelect) typeSelect.value = inv.invoiceType || 'current';
+
+        // Load saved extra charge values (legacy invoices open with empty description and 0.00)
+        const editExtraDescInput = document.getElementById('editExtraChargesDesc');
+        const editExtraAmtInput = document.getElementById('editExtraChargesAmount');
+        if (editExtraDescInput) editExtraDescInput.value = inv.extraChargesDesc || '';
+        if (editExtraAmtInput) editExtraAmtInput.value = Number(inv.extraChargesAmount || 0).toFixed(2);
+
+        // Render product rows
+        renderEditProductRows(inv.products || []);
+
+        // Initialize autocomplete on customer input if not already done
+        initEditCustomerAutocomplete();
+
+    } catch (err) {
+        console.error('Error opening edit invoice modal:', err);
+        showToast('Error loading invoice: ' + err.message, 'error');
+        closeEditInvoiceModal();
+    }
+}
+
+// Close Edit Invoice Modal
+function closeEditInvoiceModal() {
+    const modal = document.getElementById('editInvoiceModal');
+    if (modal) modal.style.display = 'none';
+    pendingEditInvoiceNumber = null;
+}
+
+// Render all product rows in edit modal
+function renderEditProductRows(productsList) {
+    const tbody = document.getElementById('editProductsTableBody');
+    if (!tbody) return;
+    tbody.innerHTML = '';
+
+    if (!productsList || productsList.length === 0) {
+        addEditProductRow({ name: '', quantity: 1, price: 0 });
+    } else {
+        productsList.forEach(item => {
+            addEditProductRow(item);
+        });
+    }
+    calculateEditTotals();
+}
+
+// Add a single product row in edit modal
+function addEditProductRow(item = {}) {
+    const tbody = document.getElementById('editProductsTableBody');
+    if (!tbody) return;
+
+    editRowCounter++;
+    const rowId = `edit-prod-row-${editRowCounter}`;
+    const name = item.name || item.product_name || item.productName || '';
+    const qty = parseInt(item.quantity) || 1;
+    const price = parseFloat(item.price !== undefined ? item.price : (item.unit_price !== undefined ? item.unit_price : item.unitPrice)) || 0;
+    const lineTotal = Math.round(qty * price * 100) / 100;
+
+    const tr = document.createElement('tr');
+    tr.className = 'edit-prod-row';
+    tr.id = rowId;
+    tr.innerHTML = `
+        <td>
+            <div class="autocomplete-wrapper" style="position: relative;">
+                <input type="text" class="edit-prod-input edit-prod-name" value="${escapeHtml(name)}" placeholder="Enter product name" autocomplete="off" required>
+                <div class="autocomplete-dropdown edit-prod-autocomplete" style="display: none;"></div>
+            </div>
+        </td>
+        <td style="text-align: center;">
+            <input type="number" class="edit-qty-input edit-prod-qty" value="${qty}" min="1" step="1" required style="width: 70px; margin: 0 auto; text-align: center;">
+        </td>
+        <td style="text-align: right;">
+            <input type="number" class="edit-price-input edit-prod-price" value="${price.toFixed(2)}" min="0" step="0.01" required style="width: 105px; margin-left: auto; text-align: right;">
+        </td>
+        <td style="text-align: right; vertical-align: middle;">
+            <span class="edit-line-total">₹${formatIndianCurrency(lineTotal)}</span>
+        </td>
+        <td style="text-align: center; vertical-align: middle;">
+            <button type="button" class="btn-remove-row edit-remove-btn" title="Remove Product">✕</button>
+        </td>
+    `;
+
+    tbody.appendChild(tr);
+
+    const qtyInput = tr.querySelector('.edit-prod-qty');
+    const priceInput = tr.querySelector('.edit-prod-price');
+    const nameInput = tr.querySelector('.edit-prod-name');
+    const dropdown = tr.querySelector('.edit-prod-autocomplete');
+    const removeBtn = tr.querySelector('.edit-remove-btn');
+
+    const updateRowTotal = () => {
+        const q = parseFloat(qtyInput.value) || 0;
+        const p = parseFloat(priceInput.value) || 0;
+        const lt = Math.round(q * p * 100) / 100;
+        const totalCell = tr.querySelector('.edit-line-total');
+        if (totalCell) totalCell.textContent = `₹${formatIndianCurrency(lt)}`;
+        calculateEditTotals();
+    };
+
+    qtyInput.addEventListener('input', updateRowTotal);
+    priceInput.addEventListener('input', updateRowTotal);
+
+    removeBtn.addEventListener('click', () => {
+        tr.remove();
+        if (!tbody.querySelectorAll('.edit-prod-row').length) {
+            addEditProductRow({ name: '', quantity: 1, price: 0 });
+        }
+        calculateEditTotals();
+    });
+
+    // Wire product autocomplete for this line
+    if (nameInput && dropdown) {
+        setupAutocomplete({
+            inputEl: nameInput,
+            dropdownEl: dropdown,
+            fetchUrl: '/api/autocomplete/products?q=',
+            dataKey: 'products',
+            renderItem: (prod, idx) => {
+                const hasP = prod.price !== undefined && prod.price !== null && Number(prod.price) > 0;
+                const priceFmt = hasP ? `₹${Number(prod.price).toFixed(2)}` : '';
+                return `
+                    <div class="autocomplete-item" data-index="${idx}">
+                        <div class="autocomplete-info">
+                            <span class="autocomplete-name">${escapeHtml(prod.name)}</span>
+                            ${hasP ? `<span class="autocomplete-sep">—</span><span class="autocomplete-price">${priceFmt}</span>` : ''}
+                        </div>
+                        ${prod.frequency > 1 ? `<span class="autocomplete-tag">${prod.frequency} sold</span>` : ''}
+                    </div>
+                `;
+            },
+            onSelect: (prod) => {
+                nameInput.value = prod.name;
+                if (prod.price !== undefined && prod.price !== null && Number(prod.price) > 0) {
+                    priceInput.value = Number(prod.price).toFixed(2);
+                }
+                updateRowTotal();
+                qtyInput.focus();
+            }
+        });
+    }
+
+    calculateEditTotals();
+}
+
+// Calculate edit modal grand total and item counts with Extra Charges
+function calculateEditTotals() {
+    const rows = document.querySelectorAll('#editProductsTableBody .edit-prod-row');
+    let productSubtotal = 0;
+    let totalQty = 0;
+    let count = 0;
+
+    rows.forEach(tr => {
+        const qty = parseFloat(tr.querySelector('.edit-prod-qty')?.value) || 0;
+        const price = parseFloat(tr.querySelector('.edit-prod-price')?.value) || 0;
+        const lineTotal = Math.round(qty * price * 100) / 100;
+        productSubtotal += lineTotal;
+        totalQty += qty;
+        count++;
+    });
+
+    const extraAmtInput = document.getElementById('editExtraChargesAmount');
+    const extraDescInput = document.getElementById('editExtraChargesDesc');
+    const extraAmt = parseFloat(extraAmtInput?.value) || 0;
+    const extraDesc = (extraDescInput?.value || '').trim() || 'Extra';
+
+    const grandTotal = Math.round((productSubtotal + (extraAmt > 0 ? extraAmt : 0)) * 100) / 100;
+
+    const totalBadge = document.getElementById('editGrandTotalAmount');
+    const countBadge = document.getElementById('editItemsCountBadge');
+    const qtyBadge = document.getElementById('editTotalQtyBadge');
+    const subtotalBadge = document.getElementById('editProductSubtotalAmount');
+    const extraSummaryRow = document.getElementById('editExtraChargesSummaryRow');
+    const extraSummaryLabel = document.getElementById('editExtraChargesSummaryLabel');
+    const extraSummaryAmount = document.getElementById('editExtraChargesSummaryAmount');
+
+    if (subtotalBadge) subtotalBadge.textContent = `₹${formatIndianCurrency(productSubtotal)}`;
+    if (extraSummaryRow) {
+        if (extraAmt > 0) {
+            extraSummaryRow.style.display = 'inline-flex';
+            if (extraSummaryLabel) extraSummaryLabel.textContent = `${extraDesc}:`;
+            if (extraSummaryAmount) extraSummaryAmount.textContent = `+₹${formatIndianCurrency(extraAmt)}`;
+        } else {
+            extraSummaryRow.style.display = 'none';
+        }
+    }
+
+    if (totalBadge) totalBadge.textContent = `₹${formatIndianCurrency(grandTotal)}`;
+    if (countBadge) countBadge.textContent = `${count} product${count !== 1 ? 's' : ''}`;
+    if (qtyBadge) qtyBadge.textContent = `${totalQty} total qty`;
+}
+
+// Initialize customer autocomplete in edit modal
+function initEditCustomerAutocomplete() {
+    const custInput = document.getElementById('editCustomerName');
+    const custDropdown = document.getElementById('editCustomerAutocomplete');
+    const areaInput = document.getElementById('editCustomerArea');
+    if (!custInput || !custDropdown || custInput.dataset.autocompleteAttached === 'true') return;
+    custInput.dataset.autocompleteAttached = 'true';
+
+    setupAutocomplete({
+        inputEl: custInput,
+        dropdownEl: custDropdown,
+        fetchUrl: '/api/autocomplete/customers?q=',
+        dataKey: 'customers',
+        renderItem: (cust, idx) => `
+            <div class="autocomplete-item" data-index="${idx}">
+                <div class="autocomplete-info">
+                    <span class="autocomplete-name">${escapeHtml(cust.shopName)}</span>
+                    <span class="autocomplete-sep">—</span>
+                    <span class="autocomplete-detail">${escapeHtml(cust.area || 'No location')}</span>
+                </div>
+                ${cust.usageCount > 1 ? `<span class="autocomplete-tag">${cust.usageCount} bills</span>` : ''}
+            </div>
+        `,
+        onSelect: (cust) => {
+            custInput.value = cust.shopName;
+            if (cust.area && areaInput) {
+                areaInput.value = cust.area;
+            }
+        }
+    });
+}
+
+// Execute Save Changes for Edited Invoice
+async function executeSaveInvoiceEdit() {
+    if (!pendingEditInvoiceNumber) return;
+
+    const custName = document.getElementById('editCustomerName')?.value.trim() || '';
+    const custArea = document.getElementById('editCustomerArea')?.value.trim() || '';
+    const invType = document.getElementById('editInvoiceType')?.value || 'current';
+
+    if (!custName) {
+        showToast('Please enter customer / shop name.', 'error');
+        document.getElementById('editCustomerName')?.focus();
+        return;
+    }
+    if (!custArea) {
+        showToast('Please enter area / location.', 'error');
+        document.getElementById('editCustomerArea')?.focus();
+        return;
+    }
+
+    const rows = document.querySelectorAll('#editProductsTableBody .edit-prod-row');
+    if (!rows.length) {
+        showToast('Please add at least one product row.', 'error');
+        return;
+    }
+
+    const products = [];
+    let hasInvalid = false;
+    rows.forEach((tr, idx) => {
+        const name = tr.querySelector('.edit-prod-name')?.value.trim() || '';
+        const qty = parseInt(tr.querySelector('.edit-prod-qty')?.value, 10);
+        const price = parseFloat(tr.querySelector('.edit-prod-price')?.value);
+
+        if (!name) {
+            showToast(`Product name is required on row ${idx + 1}.`, 'error');
+            hasInvalid = true;
+            return;
+        }
+        if (!qty || qty <= 0) {
+            showToast(`Invalid quantity for "${name}". Must be at least 1.`, 'error');
+            hasInvalid = true;
+            return;
+        }
+        if (isNaN(price) || price < 0) {
+            showToast(`Invalid unit price for "${name}". Must be 0 or more.`, 'error');
+            hasInvalid = true;
+            return;
+        }
+
+        products.push({
+            name: name,
+            quantity: qty,
+            price: price,
+            total: Math.round(qty * price * 100) / 100
+        });
+    });
+
+    if (hasInvalid) return;
+
+    const extraChargesDesc = (document.getElementById('editExtraChargesDesc')?.value || '').trim();
+    const rawExtraAmt = document.getElementById('editExtraChargesAmount')?.value;
+    const extraChargesAmount = parseFloat(rawExtraAmt) || 0.0;
+    if (extraChargesAmount < 0) {
+        showToast('Extra charges amount cannot be negative.', 'error');
+        document.getElementById('editExtraChargesAmount')?.focus();
+        return;
+    }
+
+    const btnSave = document.getElementById('btnSaveEditInvoice');
+    const originalText = btnSave ? btnSave.textContent : '💾 Save Changes';
+    if (btnSave) {
+        btnSave.disabled = true;
+        btnSave.textContent = 'Saving Changes...';
+    }
+
+    try {
+        const payload = {
+            customer: {
+                shopName: custName,
+                area: custArea
+            },
+            customerName: custName,
+            area: custArea,
+            invoiceType: invType,
+            products: products,
+            extraChargesDesc: extraChargesDesc,
+            extraChargesAmount: extraChargesAmount
+        };
+
+        const res = await fetch(`/api/invoices/${encodeURIComponent(pendingEditInvoiceNumber)}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+        const data = await res.json();
+
+        if (data.success) {
+            const updatedInvNum = pendingEditInvoiceNumber;
+            closeEditInvoiceModal();
+            showToast(`Invoice ${updatedInvNum} updated successfully!`, 'success');
+
+            // Refresh UI tables, badges, statistics and recommendations
+            await updateAppBadges();
+            await loadInvoicesTable();
+            await loadCustomersTable();
+            await loadProductsTable();
+            await loadDashboard('30d');
+            if (shopNameInput && shopNameInput.value.trim()) {
+                loadCustomerRecommendations(shopNameInput.value.trim(), true);
+            }
+        } else {
+            showToast(data.error || 'Failed to update invoice.', 'error');
+        }
+    } catch (err) {
+        console.error('Error updating invoice:', err);
+        showToast('Error updating invoice: ' + err.message, 'error');
+    } finally {
+        if (btnSave) {
+            btnSave.disabled = false;
+            btnSave.textContent = originalText;
+        }
+    }
+}
+
+// Initialize Edit Invoice Modal Listeners
+function initEditInvoiceModal() {
+    const btnCancel = document.getElementById('btnCancelEditInvoice');
+    const btnClose = document.getElementById('btnCloseEditInvoiceModal');
+    const overlay = document.getElementById('editInvoiceModalOverlay');
+    const btnSave = document.getElementById('btnSaveEditInvoice');
+    const btnAddRow = document.getElementById('btnAddEditProductRow');
+    const editExtraAmt = document.getElementById('editExtraChargesAmount');
+    const editExtraDesc = document.getElementById('editExtraChargesDesc');
+
+    if (btnCancel) btnCancel.addEventListener('click', closeEditInvoiceModal);
+    if (btnClose) btnClose.addEventListener('click', closeEditInvoiceModal);
+    if (overlay) overlay.addEventListener('click', closeEditInvoiceModal);
+    if (btnSave) btnSave.addEventListener('click', executeSaveInvoiceEdit);
+    if (btnAddRow) btnAddRow.addEventListener('click', () => addEditProductRow({ name: '', quantity: 1, price: 0 }));
+    if (editExtraAmt) editExtraAmt.addEventListener('input', calculateEditTotals);
+    if (editExtraDesc) editExtraDesc.addEventListener('input', calculateEditTotals);
+
+    // Global expose
+    window.openEditInvoiceModal = openEditInvoiceModal;
+    window.closeEditInvoiceModal = closeEditInvoiceModal;
+    window.addEditProductRow = addEditProductRow;
+    window.calculateEditTotals = calculateEditTotals;
+    window.executeSaveInvoiceEdit = executeSaveInvoiceEdit;
 }

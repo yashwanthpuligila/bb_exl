@@ -379,14 +379,50 @@
                                     </div>
                                 </div>
                                 
-                                <!-- Prominent Total Amount Banner -->
+                                <!-- Prominent Total Amount Banner with Extra Charges -->
                                 <div class="total-section">
+                                    <div class="extra-charges-card">
+                                        <div class="extra-charges-header">
+                                            <div class="extra-charges-title-block">
+                                                <span class="extra-charges-icon">🚚</span>
+                                                <div>
+                                                    <span class="extra-charges-title">Extra Charges</span>
+                                                    <span class="extra-charges-subtitle">Transport, delivery, packing, handling, or other fee</span>
+                                                </div>
+                                            </div>
+                                            <span class="extra-charges-badge">Optional</span>
+                                        </div>
+                                        <div class="extra-charges-form-row">
+                                            <div class="ec-desc-col">
+                                                <label for="extraChargesDesc" class="ec-label">Extra Charges Description</label>
+                                                <input type="text" id="extraChargesDesc" class="form-input ec-input" placeholder="e.g. Transport Charge, Delivery Charge, Packing Charge...">
+                                            </div>
+                                            <div class="ec-amt-col">
+                                                <label for="extraChargesAmount" class="ec-label">Extra Charges Amount (₹)</label>
+                                                <div class="ec-amt-input-wrap">
+                                                    <span class="ec-currency-prefix">₹</span>
+                                                    <input type="number" id="extraChargesAmount" class="form-input ec-input ec-input-amount" min="0" step="0.01" value="0.00" placeholder="0.00">
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+
                                     <div class="total-card">
                                         <div class="total-info">
                                             <span class="total-title">Total Amount</span>
-                                            <span class="total-subtitle">Total calculated amount for this invoice</span>
+                                            <div class="total-breakdown-details">
+                                                <div class="tb-item">
+                                                    <span class="tb-label">Product Subtotal:</span>
+                                                    <span class="tb-val" id="productSubtotalDisplay">₹0.00</span>
+                                                </div>
+                                                <div class="tb-item" id="extraChargesDisplayRow" style="display: none;">
+                                                    <span class="tb-label" id="extraChargesDisplayLabel">Extra Charges:</span>
+                                                    <span class="tb-val tb-extra" id="extraChargesDisplayAmount">+₹0.00</span>
+                                                </div>
+                                            </div>
                                         </div>
                                         <div class="total-value-wrapper">
+                                            <span class="grand-total-tag">Grand Total</span>
                                             <span id="totalAmount" class="total-amount">₹0.00</span>
                                         </div>
                                     </div>
@@ -934,7 +970,135 @@
     </div>
 
     <!-- ========================================================
-         MODAL 5: DELETE SINGLE INVOICE
+         MODAL 5: EDIT INVOICE
+         ======================================================== -->
+    <div id="editInvoiceModal" class="danger-modal-wrapper edit-invoice-modal-wrapper" style="display: none;">
+        <div class="danger-modal-overlay" id="editInvoiceModalOverlay"></div>
+        <div class="danger-modal-dialog edit-invoice-modal-dialog">
+            <div class="danger-modal-header" style="border-bottom: 1px solid #E2E8F0;">
+                <div class="danger-title-row">
+                    <span class="danger-header-icon" style="background: rgba(79, 70, 229, 0.1); color: #4F46E5;">✏️</span>
+                    <div>
+                        <div style="display: flex; align-items: center; gap: 8px;">
+                            <h2 class="danger-modal-title" style="color: #0F172A;">Edit Invoice</h2>
+                            <span class="invoice-num-locked-badge" id="editModalInvoiceNumBadge">INV-00000</span>
+                        </div>
+                        <p class="danger-modal-subtitle">Invoice number remains locked. Correct customer, items, quantities, or prices below.</p>
+                    </div>
+                </div>
+                <button type="button" class="danger-close-btn" id="btnCloseEditInvoiceModal" title="Close">✕</button>
+            </div>
+
+            <div class="danger-modal-body edit-modal-scroll-body">
+                <!-- Customer Details Form Grid -->
+                <div class="edit-form-grid">
+                    <div class="edit-form-group">
+                        <label for="editCustomerName">Shop / Customer Name: <span class="text-danger">*</span></label>
+                        <div class="autocomplete-wrapper">
+                            <input type="text" id="editCustomerName" class="erp-input" placeholder="e.g. Sri Narasimha Traders" autocomplete="off">
+                            <div class="autocomplete-dropdown" id="editCustomerAutocomplete"></div>
+                        </div>
+                    </div>
+
+                    <div class="edit-form-group">
+                        <label for="editCustomerArea">Area / Location: <span class="text-danger">*</span></label>
+                        <input type="text" id="editCustomerArea" class="erp-input" placeholder="e.g. Kukatpally Wholesale">
+                    </div>
+
+                    <div class="edit-form-group">
+                        <label for="editInvoiceType">Invoice Bill Type:</label>
+                        <select id="editInvoiceType" class="erp-select">
+                            <option value="current">Current Bill Only</option>
+                            <option value="all">All Bills (With History)</option>
+                        </select>
+                    </div>
+                </div>
+
+                <!-- Products Items Section -->
+                <div class="edit-items-section">
+                    <div class="edit-items-header">
+                        <h3 class="edit-section-title">📦 Invoice Line Items</h3>
+                        <button type="button" class="btn btn-secondary-sm" id="btnAddEditProductRow">
+                            ➕ Add Product
+                        </button>
+                    </div>
+
+                    <div class="table-responsive" style="max-height: 280px; overflow-y: auto; border: 1px solid #E2E8F0; border-radius: 8px;">
+                        <table class="erp-table table-sm edit-products-table">
+                            <thead>
+                                <tr>
+                                    <th style="width: 42%;">Product Name</th>
+                                    <th style="width: 16%; text-align: center;">Qty</th>
+                                    <th style="width: 20%; text-align: right;">Unit Price (₹)</th>
+                                    <th style="width: 22%; text-align: right;">Total (₹)</th>
+                                    <th style="width: 38px; text-align: center;"></th>
+                                </tr>
+                            </thead>
+                            <tbody id="editProductsTableBody">
+                                <!-- Dynamic product rows injected here -->
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <!-- Extra Charges in Edit Invoice -->
+                    <div class="edit-extra-charges-card">
+                        <div class="edit-ec-title-row">
+                            <span class="edit-ec-icon">🚚</span>
+                            <span class="edit-ec-title">Extra Charges</span>
+                            <span class="edit-ec-pill">Optional</span>
+                        </div>
+                        <div class="edit-ec-grid">
+                            <div class="edit-ec-desc-group">
+                                <label for="editExtraChargesDesc" class="edit-ec-label">Description</label>
+                                <input type="text" id="editExtraChargesDesc" class="edit-prod-input" placeholder="e.g. Transport Charge, Delivery Charge, Packing...">
+                            </div>
+                            <div class="edit-ec-amt-group">
+                                <label for="editExtraChargesAmount" class="edit-ec-label">Amount (₹)</label>
+                                <div class="edit-ec-amt-wrap">
+                                    <span class="edit-ec-prefix">₹</span>
+                                    <input type="number" id="editExtraChargesAmount" class="edit-price-input" min="0" step="0.01" value="0.00" style="text-align: right; width: 100%;">
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Live Calculated Summary Bar -->
+                    <div class="edit-totals-bar">
+                        <div class="etb-left">
+                            <span id="editItemsCountBadge">0 products</span> • 
+                            <span id="editTotalQtyBadge">0 total qty</span>
+                        </div>
+                        <div class="etb-middle">
+                            <div class="etb-calc-item">
+                                <span class="etb-sub-lbl">Subtotal:</span>
+                                <span class="etb-sub-val" id="editProductSubtotalAmount">₹0.00</span>
+                            </div>
+                            <div class="etb-calc-item" id="editExtraChargesSummaryRow" style="display: none;">
+                                <span class="etb-sub-lbl" id="editExtraChargesSummaryLabel">Extra:</span>
+                                <span class="etb-sub-val etb-extra-val" id="editExtraChargesSummaryAmount">+₹0.00</span>
+                            </div>
+                        </div>
+                        <div class="etb-right">
+                            <span class="etb-label">Grand Total:</span>
+                            <strong class="etb-amount text-primary-color" id="editGrandTotalAmount">₹0.00</strong>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="danger-modal-footer">
+                <button type="button" class="btn btn-secondary-modal" id="btnCancelEditInvoice">
+                    Cancel
+                </button>
+                <button type="button" class="btn btn-primary-action" id="btnSaveEditInvoice" style="background: #4F46E5; color: white;">
+                    💾 Save Changes
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ========================================================
+         MODAL 6: DELETE SINGLE INVOICE
          ======================================================== -->
     <div id="deleteInvoiceModal" class="danger-modal-wrapper" style="display: none;">
         <div class="danger-modal-overlay" id="deleteInvoiceModalOverlay"></div>

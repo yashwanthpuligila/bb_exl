@@ -98,6 +98,30 @@ def init_db():
                 processed_at TIMESTAMP NOT NULL
             )
         """)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS invoice_edit_history (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                invoice_number TEXT NOT NULL,
+                edited_at TIMESTAMP NOT NULL,
+                old_customer TEXT,
+                new_customer TEXT,
+                old_total REAL,
+                new_total REAL,
+                changes_summary TEXT
+            )
+        """)
+        try:
+            cursor.execute("ALTER TABLE invoices ADD COLUMN updated_at TIMESTAMP")
+        except Exception:
+            pass
+        try:
+            cursor.execute("ALTER TABLE invoices ADD COLUMN extra_charges_desc TEXT")
+        except Exception:
+            pass
+        try:
+            cursor.execute("ALTER TABLE invoices ADD COLUMN extra_charges_amount REAL DEFAULT 0.0")
+        except Exception:
+            pass
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_customer_norm ON customers(normalized_name)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_customer_rank ON customers(usage_count DESC, last_used_date DESC)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_product_norm ON products(normalized_name)")
@@ -242,7 +266,9 @@ def record_invoice(
     invoice_date: datetime = None,
     total_amount: float = None,
     file_path: str = '',
-    filename: str = ''
+    filename: str = '',
+    extra_charges_desc: str = '',
+    extra_charges_amount: float = 0.0
 ):
     """
     Persist full invoice metadata and line items to SQLite database.
@@ -253,6 +279,13 @@ def record_invoice(
     c_norm = normalize_text(customer_name)
     c_display = " ".join(str(customer_name or "").strip().split())
     clean_area = " ".join(str(area or "").strip().split())
+    clean_extra_desc = str(extra_charges_desc or '').strip()
+    try:
+        clean_extra_amt = float(extra_charges_amount or 0.0)
+    except (ValueError, TypeError):
+        clean_extra_amt = 0.0
+    if clean_extra_amt < 0:
+        clean_extra_amt = 0.0
     
     if not invoice_date:
         invoice_date = datetime.now()
@@ -281,7 +314,10 @@ def record_invoice(
         calc_qty += qty
         items_to_save.append((p_norm, p_name, qty, price, line_tot, idx + 1))
         
-    final_amount = float(total_amount) if total_amount is not None else calc_total
+    if total_amount is not None:
+        final_amount = float(total_amount)
+    else:
+        final_amount = calc_total + clean_extra_amt
     
     init_db()
     with get_connection() as conn:
@@ -290,8 +326,9 @@ def record_invoice(
             INSERT INTO invoices (
                 invoice_number, customer_norm, customer_display, area,
                 invoice_date, invoice_type, product_count, total_quantity,
-                total_amount, file_path, filename, created_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                total_amount, file_path, filename, created_at,
+                extra_charges_desc, extra_charges_amount
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(invoice_number) DO UPDATE SET
                 customer_norm = excluded.customer_norm,
                 customer_display = excluded.customer_display,
@@ -302,12 +339,15 @@ def record_invoice(
                 total_quantity = excluded.total_quantity,
                 total_amount = excluded.total_amount,
                 file_path = excluded.file_path,
-                filename = excluded.filename
+                filename = excluded.filename,
+                extra_charges_desc = excluded.extra_charges_desc,
+                extra_charges_amount = excluded.extra_charges_amount
         """, (
             invoice_number, c_norm, c_display, clean_area,
             date_iso, invoice_type, len(items_to_save), calc_qty,
             final_amount, str(file_path or ''), str(filename or ''),
-            datetime.now().isoformat()
+            datetime.now().isoformat(),
+            clean_extra_desc, clean_extra_amt
         ))
         
         cursor.execute("DELETE FROM invoice_items WHERE invoice_number = ?", (invoice_number,))
@@ -756,7 +796,7 @@ def get_invoice_detail(invoice_number: str):
     with get_connection() as conn:
         cursor = conn.cursor()
         cursor.execute("""
-            SELECT invoice_number, customer_display, area, invoice_date, invoice_type, product_count, total_quantity, total_amount, filename, file_path
+            SELECT invoice_number, customer_display, area, invoice_date, invoice_type, product_count, total_quantity, total_amount, filename, file_path, extra_charges_desc, extra_charges_amount
             FROM invoices
             WHERE invoice_number = ?
         """, (invoice_number,))
@@ -782,6 +822,10 @@ def get_invoice_detail(invoice_number: str):
                 "total": it[3]
             })
             
+        subtotal = round(sum(p["total"] for p in products), 2)
+        extra_desc = row[10] if (len(row) > 10 and row[10]) else ""
+        extra_amt = float(row[11]) if (len(row) > 11 and row[11] is not None) else 0.0
+
         return {
             "invoiceNumber": row[0],
             "customerName": row[1],
@@ -791,6 +835,9 @@ def get_invoice_detail(invoice_number: str):
             "invoiceType": row[4],
             "productCount": row[5],
             "totalQuantity": row[6],
+            "productSubtotal": subtotal,
+            "extraChargesDesc": extra_desc,
+            "extraChargesAmount": round(extra_amt, 2),
             "totalAmount": round(row[7], 2),
             "filename": row[8],
             "downloadUrl": f"/api/download/{row[8]}" if row[8] else "",
@@ -1461,7 +1508,285 @@ def bulk_delete_invoices(invoice_numbers: list, storage_dir=None):
         "failedInvoices": failed
     }
 
-def get_customer_delete_preview(customer_name: str, storage_dir=None):
+def update_invoice_record(
+    invoice_number: str,
+    customer: dict,
+    products: list,
+    invoice_type: str = 'current',
+    new_file_path: str = '',
+    new_filename: str = '',
+    storage_dir = None,
+    extra_charges_desc: str = None,
+    extra_charges_amount: float = None
+):
+    """
+    Safely update an existing invoice:
+    - Retains original invoice number.
+    - Updates invoices table (customer, area, invoice_type, totals, file_path, filename, extra charges, updated_at).
+    - Replaces line items in invoice_items table.
+    - Ensures customer and products exist in catalog.
+    - Recalculates customer usage counts, product usage counts, and customer_purchases pairs.
+    - Records edit in invoice_edit_history.
+    - Returns updated invoice record dictionary.
+    """
+    init_db()
+    if not invoice_number:
+        return None
+
+    clean_inv_num = str(invoice_number).strip()
+    
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT id, customer_norm, customer_display, area, invoice_date, invoice_type, total_amount, file_path, filename, extra_charges_desc, extra_charges_amount
+            FROM invoices
+            WHERE invoice_number = ?
+        """, (clean_inv_num,))
+        old_row = cursor.fetchone()
+        if not old_row:
+            return None
+
+        old_id, old_c_norm, old_c_disp, old_area, inv_date, old_type, old_tot, old_fpath, old_fname = old_row[:9]
+        old_extra_desc = old_row[9] if (len(old_row) > 9 and old_row[9]) else ""
+        old_extra_amt = float(old_row[10]) if (len(old_row) > 10 and old_row[10] is not None) else 0.0
+
+        clean_extra_desc = str(extra_charges_desc if extra_charges_desc is not None else old_extra_desc).strip()
+        try:
+            clean_extra_amt = float(extra_charges_amount if extra_charges_amount is not None else old_extra_amt)
+        except (ValueError, TypeError):
+            clean_extra_amt = 0.0
+        if clean_extra_amt < 0:
+            clean_extra_amt = 0.0
+
+        # Get old products in this invoice
+        cursor.execute("SELECT DISTINCT product_norm FROM invoice_items WHERE invoice_number = ?", (clean_inv_num,))
+        old_prod_norms = [r[0] for r in cursor.fetchall()]
+
+        # Parse new customer details
+        new_c_disp = " ".join(str(customer.get('shopName', '')).strip().split())
+        new_c_norm = normalize_text(new_c_disp)
+        new_area = " ".join(str(customer.get('area', '')).strip().split())
+
+        # Parse new items
+        new_items = []
+        calc_qty = 0.0
+        calc_total = 0.0
+        new_prod_norms = []
+        for idx, p in enumerate(products):
+            p_name = " ".join(str(p.get('name') or p.get('productName') or '').strip().split())
+            p_norm = normalize_text(p_name)
+            if not p_name:
+                continue
+            try:
+                qty = float(p.get('quantity', 1.0))
+            except (ValueError, TypeError):
+                qty = 1.0
+            try:
+                price_val = p.get('price') if p.get('price') is not None else p.get('unitPrice', 0.0)
+                price = float(price_val if price_val is not None else 0.0)
+            except (ValueError, TypeError):
+                price = 0.0
+
+            line_tot = round(qty * price, 2)
+            calc_qty += qty
+            calc_total += line_tot
+            new_items.append((p_norm, p_name, qty, price, line_tot, idx + 1))
+            if p_norm not in new_prod_norms:
+                new_prod_norms.append(p_norm)
+
+        subtotal = round(calc_total, 2)
+        final_total = round(subtotal + clean_extra_amt, 2)
+        f_path = str(new_file_path or old_fpath or '')
+        f_name = str(new_filename or old_fname or '')
+        now_iso = datetime.now().isoformat()
+
+        # 1. Update invoices table
+        cursor.execute("""
+            UPDATE invoices
+            SET customer_norm = ?,
+                customer_display = ?,
+                area = ?,
+                invoice_type = ?,
+                product_count = ?,
+                total_quantity = ?,
+                total_amount = ?,
+                file_path = ?,
+                filename = ?,
+                extra_charges_desc = ?,
+                extra_charges_amount = ?,
+                updated_at = ?
+            WHERE invoice_number = ?
+        """, (
+            new_c_norm, new_c_disp, new_area, invoice_type,
+            len(new_items), calc_qty, final_total,
+            f_path, f_name, clean_extra_desc, clean_extra_amt,
+            now_iso, clean_inv_num
+        ))
+
+        # 2. Replace items in invoice_items
+        cursor.execute("DELETE FROM invoice_items WHERE invoice_number = ?", (clean_inv_num,))
+        for p_norm, p_name, qty, price, line_tot, order_idx in new_items:
+            cursor.execute("""
+                INSERT INTO invoice_items (
+                    invoice_number, customer_norm, product_norm, product_display,
+                    quantity, price, total_amount, item_order
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """, (clean_inv_num, new_c_norm, p_norm, p_name, qty, price, line_tot, order_idx))
+
+        # 3. Ensure customer catalog record exists / is updated
+        cursor.execute("SELECT id FROM customers WHERE normalized_name = ?", (new_c_norm,))
+        if not cursor.fetchone():
+            cursor.execute("""
+                INSERT INTO customers (normalized_name, display_name, area, usage_count, last_used_date, recent_invoice_number)
+                VALUES (?, ?, ?, 1, ?, ?)
+            """, (new_c_norm, new_c_disp, new_area, now_iso, clean_inv_num))
+        else:
+            cursor.execute("""
+                UPDATE customers
+                SET display_name = ?, area = ?
+                WHERE normalized_name = ?
+            """, (new_c_disp, new_area, new_c_norm))
+
+        # 4. Ensure all product catalog records exist
+        for p_norm, p_name, qty, price, line_tot, order_idx in new_items:
+            cursor.execute("SELECT id FROM products WHERE normalized_name = ?", (p_norm,))
+            if not cursor.fetchone():
+                cursor.execute("""
+                    INSERT INTO products (normalized_name, display_name, latest_price, usage_count, last_used_date, recent_invoice_number)
+                    VALUES (?, ?, ?, 1, ?, ?)
+                """, (p_norm, p_name, price, now_iso, clean_inv_num))
+
+        # 5. Recalculate customer metrics (for both old and new customers)
+        affected_custs = list(set([old_c_norm, new_c_norm]))
+        for c_n in affected_custs:
+            cursor.execute("""
+                SELECT COUNT(*), COALESCE(MAX(invoice_date), '')
+                FROM invoices
+                WHERE customer_norm = ?
+            """, (c_n,))
+            rem_invs, cust_last_dt = cursor.fetchone()
+            cursor.execute("""
+                UPDATE customers
+                SET usage_count = ?, last_used_date = CASE WHEN ? != '' THEN ? ELSE last_used_date END
+                WHERE normalized_name = ?
+            """, (rem_invs, cust_last_dt, cust_last_dt, c_n))
+
+        # 6. Recalculate product metrics for all affected products
+        all_affected_prods = list(set(old_prod_norms + new_prod_norms))
+        for p_n in all_affected_prods:
+            cursor.execute("""
+                SELECT COUNT(DISTINCT ii.invoice_number), COALESCE(MAX(i.invoice_date), ''), COALESCE(MAX(ii.price), 0)
+                FROM invoice_items ii
+                JOIN invoices i ON ii.invoice_number = i.invoice_number
+                WHERE ii.product_norm = ?
+            """, (p_n,))
+            p_count, p_last_dt, p_latest_price = cursor.fetchone()
+            cursor.execute("""
+                UPDATE products
+                SET usage_count = ?, 
+                    last_used_date = CASE WHEN ? != '' THEN ? ELSE last_used_date END,
+                    latest_price = CASE WHEN ? > 0 THEN ? ELSE latest_price END
+                WHERE normalized_name = ?
+            """, (p_count, p_last_dt, p_last_dt, p_latest_price, p_latest_price, p_n))
+
+        # 7. Recalculate customer_purchases pairs
+        affected_pairs = set()
+        for p_n in old_prod_norms:
+            affected_pairs.add((old_c_norm, p_n))
+        for p_n in new_prod_norms:
+            affected_pairs.add((new_c_norm, p_n))
+
+        for c_n, p_n in affected_pairs:
+            cursor.execute("""
+                SELECT COUNT(DISTINCT ii.invoice_number), COALESCE(SUM(ii.quantity), 0), 
+                       COALESCE(MAX(ii.price), 0), COALESCE(MAX(i.invoice_date), ''),
+                       COALESCE(MAX(ii.product_display), ''), COALESCE(MAX(i.customer_display), '')
+                FROM invoice_items ii
+                JOIN invoices i ON ii.invoice_number = i.invoice_number
+                WHERE ii.customer_norm = ? AND ii.product_norm = ?
+            """, (c_n, p_n))
+            agg = cursor.fetchone()
+            rem_count, rem_qty, last_pr, last_dt, p_disp, c_disp = agg
+            if rem_count > 0:
+                cursor.execute("""
+                    INSERT INTO customer_purchases (
+                        customer_norm, customer_display, product_norm, product_display,
+                        order_count, total_quantity, last_price, last_ordered_date, recent_invoice_number
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(customer_norm, product_norm) DO UPDATE SET
+                        order_count = excluded.order_count,
+                        total_quantity = excluded.total_quantity,
+                        last_price = excluded.last_price,
+                        last_ordered_date = excluded.last_ordered_date,
+                        recent_invoice_number = excluded.recent_invoice_number,
+                        customer_display = excluded.customer_display,
+                        product_display = excluded.product_display
+                """, (c_n, c_disp, p_n, p_disp, rem_count, rem_qty, last_pr, last_dt, clean_inv_num))
+            else:
+                cursor.execute("DELETE FROM customer_purchases WHERE customer_norm = ? AND product_norm = ?", (c_n, p_n))
+
+        # 8. Record in invoice_edit_history (audit log)
+        summary_parts = []
+        if old_c_disp != new_c_disp:
+            summary_parts.append(f"Customer changed from '{old_c_disp}' to '{new_c_disp}'")
+        if old_area != new_area:
+            summary_parts.append(f"Area changed from '{old_area}' to '{new_area}'")
+        if old_tot != final_total:
+            summary_parts.append(f"Total changed from ₹{old_tot} to ₹{final_total}")
+        if (old_extra_amt != clean_extra_amt) or (old_extra_desc != clean_extra_desc):
+            summary_parts.append(f"Extra charges changed to '{clean_extra_desc}' (₹{clean_extra_amt})")
+        summary_parts.append(f"Line items count: {len(new_items)}")
+        summary_str = "; ".join(summary_parts)
+
+        cursor.execute("""
+            INSERT INTO invoice_edit_history (
+                invoice_number, edited_at, old_customer, new_customer, old_total, new_total, changes_summary
+            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+        """, (clean_inv_num, now_iso, old_c_disp, new_c_disp, old_tot, final_total, summary_str))
+
+        # 9. Update processed_invoices
+        if f_name:
+            cursor.execute("""
+                INSERT INTO processed_invoices (invoice_file, customer_norm, processed_at)
+                VALUES (?, ?, ?)
+                ON CONFLICT(invoice_file) DO UPDATE SET
+                    customer_norm = excluded.customer_norm,
+                    processed_at = excluded.processed_at
+            """, (f_name, new_c_norm, now_iso))
+
+        conn.commit()
+
+    # Fetch updated details
+    updated_detail = get_invoice_detail(clean_inv_num)
+    return updated_detail
+
+def get_invoice_edit_history(invoice_number: str):
+    """Retrieve audit log of edits for a specific invoice."""
+    init_db()
+    if not invoice_number:
+        return []
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT id, invoice_number, edited_at, old_customer, new_customer, old_total, new_total, changes_summary
+            FROM invoice_edit_history
+            WHERE invoice_number = ?
+            ORDER BY edited_at DESC
+        """, (str(invoice_number).strip(),))
+        rows = cursor.fetchall()
+        return [
+            {
+                "id": r[0],
+                "invoiceNumber": r[1],
+                "editedAt": r[2],
+                "oldCustomer": r[3],
+                "newCustomer": r[4],
+                "oldTotal": r[5],
+                "newTotal": r[6],
+                "summary": r[7]
+            }
+            for r in rows
+        ]
     """Get preview details for deleting a customer."""
     init_db()
     c_norm = normalize_text(customer_name)
