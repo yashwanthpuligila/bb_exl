@@ -57,6 +57,11 @@
                     <span class="nav-label">Products</span>
                     <span class="nav-badge" id="badgeProductCount">0</span>
                 </button>
+                <button type="button" class="nav-item" data-view="database" id="navDatabase">
+                    <span class="nav-icon">🗄️</span>
+                    <span class="nav-label">Database</span>
+                    <span class="nav-badge" id="badgeDbTables">7</span>
+                </button>
             </nav>
 
             <div class="sidebar-footer">
@@ -671,6 +676,54 @@
                                     <tr>
                                         <td colspan="8" class="loading-state">Loading products...</td>
                                     </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- ========================================================
+                     VIEW 6: DATABASE VIEWER
+                     ======================================================== -->
+                <div class="view-container" id="viewDatabase" style="display:none;">
+                    <div class="card-box">
+                        <div class="db-viewer-header">
+                            <div>
+                                <h2 class="section-title">🗄️ SQLite Database Browser</h2>
+                                <p class="section-subtitle">Live inspection of all database tables, columns, and records</p>
+                            </div>
+                            <div class="db-viewer-actions">
+                                <button type="button" class="btn btn-secondary-sm" id="btnRefreshDbView">
+                                    🔄 Refresh
+                                </button>
+                                <a href="/api/admin/export-db" class="btn btn-primary-sm" download>
+                                    📥 Download .db File
+                                </a>
+                            </div>
+                        </div>
+
+                        <!-- Table Selector Pills -->
+                        <div class="db-table-pills" id="dbTablePills">
+                            <!-- Populated dynamically via JS -->
+                        </div>
+
+                        <!-- Table Status Bar & Filter -->
+                        <div class="table-summary-bar">
+                            <div class="summary-left">
+                                Table: <strong id="dbActiveTableName">invoices</strong> &nbsp;|&nbsp; Showing <span id="dbActiveRowCount">0</span> rows
+                            </div>
+                            <div class="search-input-group" style="max-width: 280px;">
+                                <span class="search-icon">🔍</span>
+                                <input type="text" id="dbSearchInput" placeholder="Filter rows in this table..." autocomplete="off">
+                            </div>
+                        </div>
+
+                        <!-- Raw Data Table -->
+                        <div class="table-responsive db-table-container">
+                            <table class="erp-table db-data-table" id="dbRawTable">
+                                <thead id="dbTableHead"></thead>
+                                <tbody id="dbTableBody">
+                                    <tr><td class="loading-state">Loading table data...</td></tr>
                                 </tbody>
                             </table>
                         </div>

@@ -2,6 +2,7 @@ from flask import Flask, request, jsonify, send_file, send_from_directory
 from flask_cors import CORS
 import os
 import re
+import sqlite3
 from pathlib import Path
 from datetime import datetime
 from openpyxl import Workbook, load_workbook
@@ -494,6 +495,47 @@ def export_database():
         )
     except Exception as e:
         return jsonify({'error': f'Failed to export database: {str(e)}'}), 500
+
+@app.route('/api/admin/raw-database')
+def get_raw_database():
+    """Return raw SQLite table schema and rows for database viewer"""
+    try:
+        with learning_db.get_connection() as conn:
+            conn.row_factory = sqlite3.Row
+            cursor = conn.cursor()
+            
+            cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name")
+            tables_info = []
+            for t_row in cursor.fetchall():
+                t_name = t_row['name']
+                cnt = cursor.execute(f'SELECT COUNT(*) FROM "{t_name}"').fetchone()[0]
+                tables_info.append({'name': t_name, 'count': cnt})
+
+            selected_table = request.args.get('table', 'invoices')
+            allowed_names = [t['name'] for t in tables_info]
+            if selected_table not in allowed_names:
+                selected_table = 'invoices' if 'invoices' in allowed_names else (allowed_names[0] if allowed_names else '')
+
+            if not selected_table:
+                return jsonify({'success': True, 'tables': [], 'selected_table': '', 'columns': [], 'rows': []})
+
+            cursor.execute(f'PRAGMA table_info("{selected_table}")')
+            columns = [c[1] for c in cursor.fetchall()]
+
+            order_clause = ' ORDER BY id DESC' if 'id' in columns else ''
+            cursor.execute(f'SELECT * FROM "{selected_table}"{order_clause} LIMIT 250')
+            rows = [dict(r) for r in cursor.fetchall()]
+
+            return jsonify({
+                'success': True,
+                'tables': tables_info,
+                'selected_table': selected_table,
+                'columns': columns,
+                'rows': rows,
+                'total_rows': len(rows)
+            })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
 @app.route('/api/admin/reset-preview')
 def reset_preview():

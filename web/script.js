@@ -1795,7 +1795,8 @@ function switchView(viewName) {
         'create-invoice': document.getElementById('viewCreateInvoice'),
         'invoices': document.getElementById('viewInvoices'),
         'customers': document.getElementById('viewCustomers'),
-        'products': document.getElementById('viewProducts')
+        'products': document.getElementById('viewProducts'),
+        'database': document.getElementById('viewDatabase')
     };
 
     Object.keys(viewContainers).forEach(v => {
@@ -1840,6 +1841,11 @@ function switchView(viewName) {
             title: 'Products',
             subtitle: 'Product catalog, pricing intelligence, and sales performance',
             showDate: false
+        },
+        'database': {
+            title: 'Database Browser',
+            subtitle: 'Live inspection of SQLite database tables, rows, and schema',
+            showDate: false
         }
     }[viewName] || { title: 'Dashboard', subtitle: '', showDate: true };
 
@@ -1862,6 +1868,8 @@ function switchView(viewName) {
         loadCustomersTable();
     } else if (viewName === 'products') {
         loadProductsTable();
+    } else if (viewName === 'database') {
+        loadDatabaseBrowser();
     }
 }
 
@@ -4027,4 +4035,121 @@ function initPwaInstall() {
         btnInstall.innerHTML = '<span class="btn-icon">✓</span> <span class="btn-text">Installed</span>';
         btnInstall.disabled = true;
     });
-}
+}
+
+// ========================================================
+// LIVE SQLITE DATABASE BROWSER CONTROLLER
+// ========================================================
+let currentSelectedDbTable = 'invoices';
+let currentDbRawRows = [];
+let currentDbColumns = [];
+
+async function loadDatabaseBrowser(tableName = null) {
+    if (tableName) currentSelectedDbTable = tableName;
+    const pillsContainer = document.getElementById('dbTablePills');
+    const tbody = document.getElementById('dbTableBody');
+    const tableNameEl = document.getElementById('dbActiveTableName');
+    const rowCountEl = document.getElementById('dbActiveRowCount');
+
+    if (tbody) {
+        tbody.innerHTML = '<tr><td colspan="15" class="loading-state" style="padding:24px; text-align:center;">Loading live table data...</td></tr>';
+    }
+
+    try {
+        const res = await fetch(`/api/admin/raw-database?table=${encodeURIComponent(currentSelectedDbTable)}`);
+        const data = await res.json();
+        if (!data.success) throw new Error(data.error || 'Failed to fetch database data');
+
+        currentSelectedDbTable = data.selected_table;
+        currentDbRawRows = data.rows || [];
+        currentDbColumns = data.columns || [];
+
+        if (tableNameEl) tableNameEl.textContent = currentSelectedDbTable;
+        if (rowCountEl) rowCountEl.textContent = data.total_rows;
+
+        // Render Table Selection Pills
+        if (pillsContainer && data.tables) {
+            pillsContainer.innerHTML = data.tables.map(t => `
+                <button type="button" class="db-table-pill ${t.name === currentSelectedDbTable ? 'active' : ''}" data-table="${escapeHtml(t.name)}">
+                    <span>${escapeHtml(t.name)}</span>
+                    <span class="pill-badge">${t.count}</span>
+                </button>
+            `).join('');
+
+            pillsContainer.querySelectorAll('.db-table-pill').forEach(btn => {
+                btn.addEventListener('click', function() {
+                    const tbl = this.dataset.table;
+                    if (tbl) loadDatabaseBrowser(tbl);
+                });
+            });
+
+            const badgeTotalEl = document.getElementById('badgeDbTables');
+            if (badgeTotalEl) badgeTotalEl.textContent = data.tables.length;
+        }
+
+        renderRawTableRows(currentDbColumns, currentDbRawRows);
+
+    } catch (err) {
+        console.error('Error loading database browser:', err);
+        if (tbody) {
+            tbody.innerHTML = `<tr><td colspan="15" class="error-state" style="color:#ef4444; padding:24px; text-align:center;">Failed to load database: ${escapeHtml(err.message)}</td></tr>`;
+        }
+    }
+}
+
+function renderRawTableRows(columns, rows) {
+    const thead = document.getElementById('dbTableHead');
+    const tbody = document.getElementById('dbTableBody');
+    const rowCountEl = document.getElementById('dbActiveRowCount');
+    if (!thead || !tbody) return;
+
+    if (!columns || columns.length === 0) {
+        thead.innerHTML = '<tr><th>No Columns</th></tr>';
+        tbody.innerHTML = '<tr><td class="empty-state" style="padding:20px; text-align:center; color:#94a3b8;">Empty table</td></tr>';
+        return;
+    }
+
+    thead.innerHTML = '<tr>' + columns.map(c => `<th>${escapeHtml(c)}</th>`).join('') + '</tr>';
+
+    if (!rows || rows.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="${columns.length}" class="empty-state" style="text-align:center; padding:30px; color:#94a3b8;">No records found in this table</td></tr>`;
+        if (rowCountEl) rowCountEl.textContent = '0';
+        return;
+    }
+
+    if (rowCountEl) rowCountEl.textContent = rows.length;
+
+    tbody.innerHTML = rows.map(r => {
+        const cells = columns.map(c => {
+            const val = r[c];
+            let displayVal = val === null || val === undefined ? '<em style="color:#64748b;">NULL</em>' : escapeHtml(String(val));
+            return `<td>${displayVal}</td>`;
+        }).join('');
+        return `<tr>${cells}</tr>`;
+    }).join('');
+}
+
+// Wire up Database Browser filter and refresh
+document.addEventListener('DOMContentLoaded', function() {
+    const dbSearchInput = document.getElementById('dbSearchInput');
+    if (dbSearchInput) {
+        dbSearchInput.addEventListener('input', function() {
+            const q = this.value.trim().toLowerCase();
+            if (!q) {
+                renderRawTableRows(currentDbColumns, currentDbRawRows);
+                return;
+            }
+            const filtered = currentDbRawRows.filter(r => {
+                return Object.values(r).some(v => String(v || '').toLowerCase().includes(q));
+            });
+            renderRawTableRows(currentDbColumns, filtered);
+        });
+    }
+
+    const btnRefreshDb = document.getElementById('btnRefreshDbView');
+    if (btnRefreshDb) {
+        btnRefreshDb.addEventListener('click', () => {
+            loadDatabaseBrowser(currentSelectedDbTable);
+        });
+    }
+});

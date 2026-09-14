@@ -4172,6 +4172,114 @@ body {
 /* ==========================================================================
    A4 Print Optimization Rules (@media print)
    ========================================================================== */
+/* ========================================================
+   DATABASE BROWSER STYLES
+   ======================================================== */
+.db-viewer-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 12px;
+    margin-bottom: 20px;
+    padding-bottom: 16px;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.db-viewer-actions {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.db-table-pills {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-bottom: 16px;
+}
+
+.db-table-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 14px;
+    border-radius: 20px;
+    background: var(--bg-card);
+    border: 1px solid var(--border-color);
+    color: var(--text-secondary);
+    font-size: 0.82rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.db-table-pill:hover {
+    border-color: var(--primary);
+    color: var(--text-primary);
+    background: rgba(37, 99, 235, 0.08);
+}
+
+.db-table-pill.active {
+    background: var(--primary);
+    color: #FFFFFF;
+    border-color: var(--primary);
+    box-shadow: 0 2px 8px rgba(37, 99, 235, 0.35);
+}
+
+.db-table-pill .pill-badge {
+    padding: 1px 7px;
+    border-radius: 12px;
+    font-size: 0.72rem;
+    background: rgba(255, 255, 255, 0.2);
+    font-weight: 600;
+}
+
+.db-table-pill:not(.active) .pill-badge {
+    background: var(--bg-subtle);
+    color: var(--text-muted);
+}
+
+.db-table-container {
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    background: var(--bg-card);
+    max-height: 520px;
+    overflow: auto;
+}
+
+.db-data-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.82rem;
+}
+
+.db-data-table th {
+    position: sticky;
+    top: 0;
+    background: var(--bg-subtle);
+    z-index: 2;
+    padding: 10px 12px;
+    text-align: left;
+    font-weight: 600;
+    color: var(--text-secondary);
+    border-bottom: 2px solid var(--border-color);
+    white-space: nowrap;
+}
+
+.db-data-table td {
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--border-color);
+    color: var(--text-primary);
+    white-space: nowrap;
+    font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, Courier, monospace;
+    font-size: 0.8rem;
+}
+
+.db-data-table tr:hover td {
+    background: rgba(37, 99, 235, 0.04);
+}
+
 @page {
     size: A4;
     margin: 10mm;
