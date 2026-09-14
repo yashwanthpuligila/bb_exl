@@ -471,6 +471,30 @@ def get_sales_analytics():
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
+@app.route('/api/admin/export-db', methods=['GET'])
+def export_database():
+    """Download the current SQLite database file for sync or backup"""
+    try:
+        db_path = learning_db.DB_PATH
+        if not db_path.exists():
+            return jsonify({'error': 'Database file not found'}), 404
+        
+        # Checkpoint WAL buffer to ensure db file has all updates
+        try:
+            with learning_db.get_connection() as conn:
+                conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+        except Exception as cp_err:
+            print(f"Notice: Checkpoint before export: {cp_err}")
+
+        return send_file(
+            str(db_path),
+            as_attachment=True,
+            download_name='invoice_learning.db',
+            mimetype='application/x-sqlite3'
+        )
+    except Exception as e:
+        return jsonify({'error': f'Failed to export database: {str(e)}'}), 500
+
 @app.route('/api/admin/reset-preview')
 def reset_preview():
     """Get dynamic preview counts of data that will be deleted"""

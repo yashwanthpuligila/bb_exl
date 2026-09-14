@@ -3386,6 +3386,33 @@ body {
     cursor: default;
 }
 
+/* --- Export DB Button in Sidebar --- */
+.btn-export-db {
+    margin-top: 6px;
+    width: 100%;
+    padding: 8px 10px;
+    border-radius: 6px;
+    background: rgba(255, 255, 255, 0.08);
+    color: #CBD5E1;
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    font-size: 0.76rem;
+    font-weight: 600;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    text-decoration: none;
+    transition: all 0.2s ease;
+    box-sizing: border-box;
+}
+
+.btn-export-db:hover {
+    background: rgba(255, 255, 255, 0.18);
+    color: #FFFFFF;
+    border-color: rgba(255, 255, 255, 0.35);
+}
+
 /* --- Danger Reset Button in Sidebar --- */
 .btn-danger-reset {
     margin-top: 6px;
