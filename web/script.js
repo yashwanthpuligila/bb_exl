@@ -18,6 +18,9 @@ const loadingOverlay = document.getElementById('loadingOverlay');
 
 // Event listeners
 document.addEventListener('DOMContentLoaded', function() {
+    if (window.location.protocol === 'file:') {
+        alert('⚠️ NOTICE: You opened this file directly from your disk (file://).\n\nTo connect to the database and generate invoices, please open:\n• http://localhost:5000\n• or double-click "run_desktop_app.bat"');
+    }
     initPwaInstall();
     addProductBtn.addEventListener('click', addProduct);
     clearAllBtn.addEventListener('click', clearAll);
@@ -482,18 +485,29 @@ async function generateInvoice() {
     
     if (!shopName) {
         showStatus('Please enter shop name', 'error');
+        if (typeof showToast === 'function') showToast('Please enter Shop Name', 'error');
         shopNameInput.focus();
         return;
     }
     
     if (!area) {
         showStatus('Please enter area', 'error');
+        if (typeof showToast === 'function') showToast('Please enter Area', 'error');
         areaInput.focus();
         return;
     }
+
+    // Auto-add current product if user typed into product inputs but forgot to click "Add Product"
+    const pName = productNameInput.value.trim();
+    const pQty = parseInt(quantityInput.value);
+    const pPrice = parseFloat(priceInput.value);
+    if (pName && pQty > 0 && pPrice >= 0) {
+        addProduct();
+    }
     
     if (products.length === 0) {
-        showStatus('Please add at least one product', 'error');
+        showStatus('Please add at least one product before generating invoice', 'error');
+        if (typeof showToast === 'function') showToast('Please add at least one product', 'error');
         productNameInput.focus();
         return;
     }

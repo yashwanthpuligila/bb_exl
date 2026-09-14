@@ -360,6 +360,10 @@ def record_invoice(
             """, (invoice_number, c_norm, p_norm, p_name, qty, price, line_tot, order_idx))
             
         conn.commit()
+        try:
+            cursor.execute("PRAGMA wal_checkpoint(PASSIVE)")
+        except Exception:
+            pass
         
     record_customer(customer_name, area=clean_area, invoice_number=invoice_number, date_time=invoice_date)
     for p_norm, p_name, qty, price, line_tot, _ in items_to_save:
@@ -1145,7 +1149,69 @@ def import_historical_data(directories, force_rebuild: bool = False):
                 mtime = datetime.fromtimestamp(f.stat().st_mtime)
                 wb = openpyxl.load_workbook(str(f), data_only=True)
                 ws = wb.active
-                
+
+                # Handle tabular order sheets (like orders.xlsx)
+                headers = [str(ws.cell(1, c).value or '').strip().lower() for c in range(1, min(12, ws.max_column + 1))]
+                if 'order_id' in headers and 'customer_name' in headers:
+                    c_idx = headers.index('customer_name') + 1
+                    p_idx = headers.index('product_name') + 1 if 'product_name' in headers else -1
+                    q_idx = headers.index('quantity') + 1 if 'quantity' in headers else -1
+                    pr_idx = headers.index('price') + 1 if 'price' in headers else -1
+                    t_idx = headers.index('total_price') + 1 if 'total_price' in headers else -1
+                    d_idx = headers.index('timestamp') + 1 if 'timestamp' in headers else -1
+
+                    for r in range(2, ws.max_row + 1):
+                        cust_val = str(ws.cell(r, c_idx).value or '').strip()
+                        if not cust_val:
+                            continue
+                        prod_val = str(ws.cell(r, p_idx).value or '').strip() if p_idx > 0 else 'Item'
+                        try:
+                            qty_val = float(ws.cell(r, q_idx).value or 1)
+                        except Exception:
+                            qty_val = 1.0
+                        try:
+                            price_val = float(ws.cell(r, pr_idx).value or 0)
+                        except Exception:
+                            price_val = 0.0
+                        try:
+                            tot_val = float(ws.cell(r, t_idx).value or (qty_val * price_val))
+                        except Exception:
+                            tot_val = qty_val * price_val
+
+                        row_date = None
+                        if d_idx > 0:
+                            raw_d = str(ws.cell(r, d_idx).value or '').strip()
+                            if raw_d:
+                                try:
+                                    row_date = datetime.fromisoformat(raw_d)
+                                except Exception:
+                                    pass
+                        if not row_date:
+                            row_date = mtime
+
+                        ord_num = f"ORD-{r-1:04d}"
+                        record_invoice(
+                            invoice_number=ord_num,
+                            customer_name=cust_val,
+                            area='',
+                            products=[{'name': prod_val, 'quantity': qty_val, 'price': price_val}],
+                            invoice_type='current',
+                            invoice_date=row_date,
+                            total_amount=tot_val,
+                            file_path=str(f),
+                            filename=f.name
+                        )
+                        total_invoices_imported += 1
+
+                    with get_connection() as conn:
+                        cursor = conn.cursor()
+                        cursor.execute(
+                            "INSERT OR REPLACE INTO processed_invoices (invoice_file, customer_norm, processed_at) VALUES (?, ?, ?)",
+                            (f.name, "orders_table", datetime.now().isoformat())
+                        )
+                        conn.commit()
+                    continue
+
                 shop_name = ""
                 area = ""
                 inv_num = ""
