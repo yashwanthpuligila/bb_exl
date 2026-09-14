@@ -1,8 +1,10 @@
 @echo off
 cd /d "%~dp0web"
-echo Starting Web Invoice Generator...
-echo.
-echo Starting Web Invoice Generator...
+set DATABASE_ENGINE=sqlite
+set DATABASE_URL=
+set POSTGRES_URL=
+set POSTGRESQL_URL=
+echo Starting Web Invoice Generator (SQLite Local Engine)...
 echo.
 echo Open your browser and go to: http://localhost:5000
 echo Press Ctrl+C to stop the server

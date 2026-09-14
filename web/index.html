@@ -71,7 +71,7 @@
                 </button>
                 <div class="system-status-indicator">
                     <span class="status-dot"></span>
-                    <span class="status-text">SQLite Learning DB Active</span>
+                    <span class="status-text" id="systemStatusText">SQLite Learning DB Active</span>
                 </div>
                 <div class="store-quick-info">
                     <span class="store-city">📍 Hyderabad Wholesale Hub</span>
@@ -689,8 +689,8 @@
                     <div class="card-box">
                         <div class="db-viewer-header">
                             <div>
-                                <h2 class="section-title">🗄️ SQLite Database Browser</h2>
-                                <p class="section-subtitle">Live inspection of all database tables, columns, and records</p>
+                                <h2 class="section-title" id="dbBrowserTitle">🗄️ SQLite Database Browser</h2>
+                                <p class="section-subtitle" id="dbBrowserSubtitle">Live inspection of all database tables, columns, and records</p>
                             </div>
                             <div class="db-viewer-actions">
                                 <button type="button" class="btn btn-secondary-sm" id="btnRefreshDbView">

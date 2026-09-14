@@ -3,30 +3,268 @@ import os
 import re
 import math
 from pathlib import Path
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date
 import openpyxl
 import tempfile
 import shutil
 
+try:
+    import psycopg2
+    import psycopg2.extras
+    PSYCOPG2_AVAILABLE = True
+except ImportError:
+    PSYCOPG2_AVAILABLE = False
+
 DB_PATH = Path(__file__).resolve().parent / "invoice_learning.db"
 
+def get_database_url():
+    """Retrieve database connection string from environment if set."""
+    engine = (os.environ.get('DATABASE_ENGINE') or '').strip().lower()
+    # 1. If explicitly configured for SQLite, never return PostgreSQL URL
+    if engine in ('sqlite', 'sqlite3', 'local'):
+        return None
+
+    # 2. On Windows Desktop (os.name == 'nt'), default to SQLite unless explicitly set to PostgreSQL
+    if os.name == 'nt' and engine not in ('postgresql', 'postgres', 'cloud'):
+        return None
+
+    url = os.environ.get('DATABASE_URL') or os.environ.get('POSTGRES_URL') or os.environ.get('POSTGRESQL_URL')
+    if url:
+        url = url.strip()
+        # Render / Heroku URLs start with postgres://, psycopg2 prefers postgresql://
+        if url.startswith('postgres://'):
+            url = 'postgresql://' + url[len('postgres://'):]
+        return url
+    return None
+
+def is_postgres() -> bool:
+    """Check if application is running against PostgreSQL."""
+    engine = (os.environ.get('DATABASE_ENGINE') or '').strip().lower()
+    # 1. Explicit SQLite engine override
+    if engine in ('sqlite', 'sqlite3', 'local'):
+        return False
+
+    # 2. On Windows Desktop, default to SQLite unless explicitly set to PostgreSQL
+    if os.name == 'nt' and engine not in ('postgresql', 'postgres', 'cloud'):
+        return False
+
+    # 3. Running on Render or explicit PostgreSQL configuration with valid DATABASE_URL
+    return bool(get_database_url())
+
+def get_database_engine_name() -> str:
+    """Return current database engine name."""
+    return "PostgreSQL" if is_postgres() else "SQLite"
+
+class SqliteCursorWrapper:
+    """Cursor wrapper for SQLite returning row objects compatible with dict / positional access."""
+    def __init__(self, raw_cursor):
+        self._raw_cursor = raw_cursor
+
+    def execute(self, sql, params=None):
+        if params is not None:
+            self._raw_cursor.execute(sql, params)
+        else:
+            self._raw_cursor.execute(sql)
+        return self
+
+    def fetchone(self):
+        return self._raw_cursor.fetchone()
+
+    def fetchall(self):
+        return self._raw_cursor.fetchall()
+
+    def fetchmany(self, size=None):
+        return self._raw_cursor.fetchmany(size) if size else self._raw_cursor.fetchmany()
+
+    @property
+    def rowcount(self):
+        return self._raw_cursor.rowcount
+
+    @property
+    def description(self):
+        return self._raw_cursor.description
+
+    def __iter__(self):
+        return iter(self._raw_cursor)
+
+
+class SqliteConnectionWrapper:
+    """Thread-safe SQLite connection wrapper with context management."""
+    def __init__(self, db_path):
+        self._raw_conn = sqlite3.connect(str(db_path), timeout=15)
+        self._raw_conn.row_factory = sqlite3.Row
+        try:
+            self._raw_conn.execute("PRAGMA journal_mode=WAL")
+        except Exception:
+            pass
+        self.row_factory = sqlite3.Row
+
+    def cursor(self):
+        return SqliteCursorWrapper(self._raw_conn.cursor())
+
+    def execute(self, sql, params=None):
+        cur = self.cursor()
+        cur.execute(sql, params)
+        return cur
+
+    def commit(self):
+        self._raw_conn.commit()
+
+    def rollback(self):
+        try:
+            self._raw_conn.rollback()
+        except Exception:
+            pass
+
+    def close(self):
+        try:
+            self._raw_conn.close()
+        except Exception:
+            pass
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        if exc_type:
+            self.rollback()
+        else:
+            try:
+                self.commit()
+            except Exception:
+                pass
+        self.close()
+
+
+class PostgresCursorWrapper:
+    """Cursor wrapper for PostgreSQL adapting ? parameter markers to %s."""
+    def __init__(self, raw_cursor):
+        self._raw_cursor = raw_cursor
+
+    def _adapt_sql(self, sql: str) -> str:
+        # Translate SQLite ? parameter markers to PostgreSQL %s markers
+        return sql.replace('?', '%s')
+
+    def execute(self, sql, params=None):
+        adapted = self._adapt_sql(sql)
+        if params is not None:
+            if not isinstance(params, (tuple, list)):
+                params = (params,)
+            self._raw_cursor.execute(adapted, params)
+        else:
+            self._raw_cursor.execute(adapted)
+        return self
+
+    def fetchone(self):
+        return self._raw_cursor.fetchone()
+
+    def fetchall(self):
+        return self._raw_cursor.fetchall()
+
+    def fetchmany(self, size=None):
+        return self._raw_cursor.fetchmany(size) if size else self._raw_cursor.fetchmany()
+
+    @property
+    def rowcount(self):
+        return self._raw_cursor.rowcount
+
+    @property
+    def description(self):
+        return self._raw_cursor.description
+
+    def __iter__(self):
+        return iter(self._raw_cursor)
+
+
+class PostgresConnectionWrapper:
+    """PostgreSQL connection wrapper with DictCursor and context management."""
+    def __init__(self, dsn):
+        if not PSYCOPG2_AVAILABLE:
+            raise ImportError("psycopg2 is required for PostgreSQL connections. Install with: pip install psycopg2-binary")
+        self.dsn = dsn
+        self._raw_conn = psycopg2.connect(dsn)
+        self.row_factory = None
+
+    def cursor(self):
+        cur = self._raw_conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
+        return PostgresCursorWrapper(cur)
+
+    def execute(self, sql, params=None):
+        cur = self.cursor()
+        cur.execute(sql, params)
+        return cur
+
+    def commit(self):
+        self._raw_conn.commit()
+
+    def rollback(self):
+        try:
+            self._raw_conn.rollback()
+        except Exception:
+            pass
+
+    def close(self):
+        try:
+            if not self._raw_conn.closed:
+                self._raw_conn.close()
+        except Exception:
+            pass
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        if exc_type:
+            self.rollback()
+        else:
+            try:
+                self.commit()
+            except Exception:
+                pass
+        self.close()
+
+
 def get_connection():
-    """Get SQLite database connection with row factory."""
-    conn = sqlite3.connect(str(DB_PATH), timeout=15)
-    conn.execute("PRAGMA journal_mode=WAL")
-    return conn
+    """
+    Get appropriate database connection based on environment:
+    - PostgreSQL if is_postgres() is True and connection URL is available
+    - Local SQLite database (invoice_learning.db) for Local Windows Desktop
+    """
+    if is_postgres():
+        pg_url = get_database_url()
+        if pg_url:
+            return PostgresConnectionWrapper(pg_url)
+    return SqliteConnectionWrapper(DB_PATH)
+
+
+def date_format_sql(col_name: str, fmt_type: str) -> str:
+    """Return database-specific SQL expression to format timestamp column as day or month string."""
+    if is_postgres():
+        if fmt_type == 'day':
+            return f"TO_CHAR({col_name}, 'YYYY-MM-DD')"
+        else:
+            return f"TO_CHAR({col_name}, 'YYYY-MM')"
+    else:
+        if fmt_type == 'day':
+            return f"strftime('%Y-%m-%d', {col_name})"
+        else:
+            return f"strftime('%Y-%m', {col_name})"
+
 
 def normalize_text(text: str) -> str:
     """Collapses spaces and converts to lowercase for deduplication and matching."""
     return " ".join(str(text or "").strip().lower().split())
 
+
 def init_db():
-    """Initialize database tables and indexes."""
+    """Initialize database tables and indexes for SQLite or PostgreSQL."""
+    auto_pk = "SERIAL PRIMARY KEY" if is_postgres() else "INTEGER PRIMARY KEY AUTOINCREMENT"
+    
     with get_connection() as conn:
         cursor = conn.cursor()
-        cursor.execute("""
+        cursor.execute(f"""
             CREATE TABLE IF NOT EXISTS customers (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                id {auto_pk},
                 normalized_name TEXT UNIQUE NOT NULL,
                 display_name TEXT NOT NULL,
                 area TEXT NOT NULL,
@@ -35,9 +273,9 @@ def init_db():
                 recent_invoice_number TEXT
             )
         """)
-        cursor.execute("""
+        cursor.execute(f"""
             CREATE TABLE IF NOT EXISTS products (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                id {auto_pk},
                 normalized_name TEXT UNIQUE NOT NULL,
                 display_name TEXT NOT NULL,
                 latest_price REAL NOT NULL,
@@ -46,9 +284,9 @@ def init_db():
                 recent_invoice_number TEXT
             )
         """)
-        cursor.execute("""
+        cursor.execute(f"""
             CREATE TABLE IF NOT EXISTS customer_purchases (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                id {auto_pk},
                 customer_norm TEXT NOT NULL,
                 customer_display TEXT NOT NULL,
                 product_norm TEXT NOT NULL,
@@ -61,9 +299,9 @@ def init_db():
                 UNIQUE(customer_norm, product_norm)
             )
         """)
-        cursor.execute("""
+        cursor.execute(f"""
             CREATE TABLE IF NOT EXISTS invoices (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                id {auto_pk},
                 invoice_number TEXT UNIQUE NOT NULL,
                 customer_norm TEXT NOT NULL,
                 customer_display TEXT NOT NULL,
@@ -75,12 +313,15 @@ def init_db():
                 total_amount REAL NOT NULL,
                 file_path TEXT NOT NULL,
                 filename TEXT NOT NULL,
-                created_at TIMESTAMP NOT NULL
+                created_at TIMESTAMP NOT NULL,
+                updated_at TIMESTAMP,
+                extra_charges_desc TEXT,
+                extra_charges_amount REAL DEFAULT 0.0
             )
         """)
-        cursor.execute("""
+        cursor.execute(f"""
             CREATE TABLE IF NOT EXISTS invoice_items (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                id {auto_pk},
                 invoice_number TEXT NOT NULL,
                 customer_norm TEXT NOT NULL,
                 product_norm TEXT NOT NULL,
@@ -98,9 +339,9 @@ def init_db():
                 processed_at TIMESTAMP NOT NULL
             )
         """)
-        cursor.execute("""
+        cursor.execute(f"""
             CREATE TABLE IF NOT EXISTS invoice_edit_history (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                id {auto_pk},
                 invoice_number TEXT NOT NULL,
                 edited_at TIMESTAMP NOT NULL,
                 old_customer TEXT,
@@ -136,7 +377,8 @@ def init_db():
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_item_prod ON invoice_items(product_norm)")
         conn.commit()
 
-def record_customer(shop_name: str, area: str = "", invoice_number: str = "", date_time: datetime = None):
+
+def record_customer(shop_name: str, area: str = "", invoice_number: str = "", date_time: datetime = None, conn=None):
     """Record or update customer usage."""
     norm = normalize_text(shop_name)
     if not norm:
@@ -145,14 +387,19 @@ def record_customer(shop_name: str, area: str = "", invoice_number: str = "", da
     clean_area = " ".join(str(area or "").strip().split())
     if not date_time:
         date_time = datetime.now()
-    dt_str = date_time.isoformat()
+    dt_str = date_time.isoformat() if hasattr(date_time, 'isoformat') else str(date_time)
     
-    with get_connection() as conn:
+    should_close = False
+    if conn is None:
+        conn = get_connection()
+        should_close = True
+        
+    try:
         cursor = conn.cursor()
         cursor.execute("SELECT id, usage_count, display_name, area FROM customers WHERE normalized_name = ?", (norm,))
         row = cursor.fetchone()
         if row:
-            cid, count, existing_display, existing_area = row
+            cid = row[0]
             cursor.execute("""
                 UPDATE customers 
                 SET usage_count = usage_count + 1,
@@ -167,9 +414,13 @@ def record_customer(shop_name: str, area: str = "", invoice_number: str = "", da
                 INSERT INTO customers (normalized_name, display_name, area, usage_count, last_used_date, recent_invoice_number)
                 VALUES (?, ?, ?, 1, ?, ?)
             """, (norm, clean_display, clean_area, dt_str, invoice_number))
-        conn.commit()
+        if should_close:
+            conn.commit()
+    finally:
+        if should_close:
+            conn.close()
 
-def record_product(name: str, price: float = 0.0, invoice_number: str = "", date_time: datetime = None):
+def record_product(name: str, price: float = 0.0, invoice_number: str = "", date_time: datetime = None, conn=None):
     """Record or update global product usage."""
     norm = normalize_text(name)
     if not norm:
@@ -182,14 +433,19 @@ def record_product(name: str, price: float = 0.0, invoice_number: str = "", date
         
     if not date_time:
         date_time = datetime.now()
-    dt_str = date_time.isoformat()
+    dt_str = date_time.isoformat() if hasattr(date_time, 'isoformat') else str(date_time)
     
-    with get_connection() as conn:
+    should_close = False
+    if conn is None:
+        conn = get_connection()
+        should_close = True
+        
+    try:
         cursor = conn.cursor()
         cursor.execute("SELECT id, usage_count FROM products WHERE normalized_name = ?", (norm,))
         row = cursor.fetchone()
         if row:
-            pid, count = row
+            pid = row[0]
             cursor.execute("""
                 UPDATE products
                 SET usage_count = usage_count + 1,
@@ -204,9 +460,13 @@ def record_product(name: str, price: float = 0.0, invoice_number: str = "", date
                 INSERT INTO products (normalized_name, display_name, latest_price, usage_count, last_used_date, recent_invoice_number)
                 VALUES (?, ?, ?, 1, ?, ?)
             """, (norm, clean_display, price_val, dt_str, invoice_number))
-        conn.commit()
+        if should_close:
+            conn.commit()
+    finally:
+        if should_close:
+            conn.close()
 
-def record_customer_purchase(shop_name: str, product_name: str, quantity: float = 1.0, price: float = 0.0, invoice_number: str = "", date_time: datetime = None):
+def record_customer_purchase(shop_name: str, product_name: str, quantity: float = 1.0, price: float = 0.0, invoice_number: str = "", date_time: datetime = None, conn=None):
     """Record or update customer-specific product purchase history."""
     c_norm = normalize_text(shop_name)
     p_norm = normalize_text(product_name)
@@ -226,9 +486,14 @@ def record_customer_purchase(shop_name: str, product_name: str, quantity: float 
         
     if not date_time:
         date_time = datetime.now()
-    dt_str = date_time.isoformat()
+    dt_str = date_time.isoformat() if hasattr(date_time, 'isoformat') else str(date_time)
     
-    with get_connection() as conn:
+    should_close = False
+    if conn is None:
+        conn = get_connection()
+        should_close = True
+        
+    try:
         cursor = conn.cursor()
         cursor.execute(
             "SELECT id, order_count, total_quantity, last_price FROM customer_purchases WHERE customer_norm = ? AND product_norm = ?",
@@ -236,7 +501,7 @@ def record_customer_purchase(shop_name: str, product_name: str, quantity: float 
         )
         row = cursor.fetchone()
         if row:
-            cpid, count, existing_qty, existing_price = row
+            cpid = row[0]
             cursor.execute("""
                 UPDATE customer_purchases
                 SET order_count = order_count + 1,
@@ -255,7 +520,11 @@ def record_customer_purchase(shop_name: str, product_name: str, quantity: float 
                     order_count, total_quantity, last_price, last_ordered_date, recent_invoice_number
                 ) VALUES (?, ?, ?, ?, 1, ?, ?, ?, ?)
             """, (c_norm, c_display, p_norm, p_display, qty, price_val, dt_str, invoice_number))
-        conn.commit()
+        if should_close:
+            conn.commit()
+    finally:
+        if should_close:
+            conn.close()
 
 def record_invoice(
     invoice_number: str,
@@ -271,8 +540,8 @@ def record_invoice(
     extra_charges_amount: float = 0.0
 ):
     """
-    Persist full invoice metadata and line items to SQLite database.
-    Also updates customer records, product records, and customer_purchases.
+    Persist full invoice metadata and line items to database inside a single atomic transaction.
+    Also atomically updates customer records, product records, and customer_purchases.
     """
     if not invoice_number:
         return
@@ -289,7 +558,7 @@ def record_invoice(
     
     if not invoice_date:
         invoice_date = datetime.now()
-    date_iso = invoice_date.isoformat()
+    date_iso = invoice_date.isoformat() if hasattr(invoice_date, 'isoformat') else str(invoice_date)
     
     calc_total = 0.0
     calc_qty = 0.0
@@ -321,54 +590,61 @@ def record_invoice(
     
     init_db()
     with get_connection() as conn:
-        cursor = conn.cursor()
-        cursor.execute("""
-            INSERT INTO invoices (
-                invoice_number, customer_norm, customer_display, area,
-                invoice_date, invoice_type, product_count, total_quantity,
-                total_amount, file_path, filename, created_at,
-                extra_charges_desc, extra_charges_amount
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT(invoice_number) DO UPDATE SET
-                customer_norm = excluded.customer_norm,
-                customer_display = excluded.customer_display,
-                area = excluded.area,
-                invoice_date = excluded.invoice_date,
-                invoice_type = excluded.invoice_type,
-                product_count = excluded.product_count,
-                total_quantity = excluded.total_quantity,
-                total_amount = excluded.total_amount,
-                file_path = excluded.file_path,
-                filename = excluded.filename,
-                extra_charges_desc = excluded.extra_charges_desc,
-                extra_charges_amount = excluded.extra_charges_amount
-        """, (
-            invoice_number, c_norm, c_display, clean_area,
-            date_iso, invoice_type, len(items_to_save), calc_qty,
-            final_amount, str(file_path or ''), str(filename or ''),
-            datetime.now().isoformat(),
-            clean_extra_desc, clean_extra_amt
-        ))
-        
-        cursor.execute("DELETE FROM invoice_items WHERE invoice_number = ?", (invoice_number,))
-        for p_norm, p_name, qty, price, line_tot, order_idx in items_to_save:
-            cursor.execute("""
-                INSERT INTO invoice_items (
-                    invoice_number, customer_norm, product_norm, product_display,
-                    quantity, price, total_amount, item_order
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            """, (invoice_number, c_norm, p_norm, p_name, qty, price, line_tot, order_idx))
-            
-        conn.commit()
         try:
-            cursor.execute("PRAGMA wal_checkpoint(PASSIVE)")
-        except Exception:
-            pass
-        
-    record_customer(customer_name, area=clean_area, invoice_number=invoice_number, date_time=invoice_date)
-    for p_norm, p_name, qty, price, line_tot, _ in items_to_save:
-        record_product(p_name, price=price, invoice_number=invoice_number, date_time=invoice_date)
-        record_customer_purchase(customer_name, p_name, quantity=qty, price=price, invoice_number=invoice_number, date_time=invoice_date)
+            cursor = conn.cursor()
+            cursor.execute("""
+                INSERT INTO invoices (
+                    invoice_number, customer_norm, customer_display, area,
+                    invoice_date, invoice_type, product_count, total_quantity,
+                    total_amount, file_path, filename, created_at,
+                    extra_charges_desc, extra_charges_amount
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(invoice_number) DO UPDATE SET
+                    customer_norm = excluded.customer_norm,
+                    customer_display = excluded.customer_display,
+                    area = excluded.area,
+                    invoice_date = excluded.invoice_date,
+                    invoice_type = excluded.invoice_type,
+                    product_count = excluded.product_count,
+                    total_quantity = excluded.total_quantity,
+                    total_amount = excluded.total_amount,
+                    file_path = excluded.file_path,
+                    filename = excluded.filename,
+                    extra_charges_desc = excluded.extra_charges_desc,
+                    extra_charges_amount = excluded.extra_charges_amount
+            """, (
+                invoice_number, c_norm, c_display, clean_area,
+                date_iso, invoice_type, len(items_to_save), calc_qty,
+                final_amount, str(file_path or ''), str(filename or ''),
+                datetime.now().isoformat(),
+                clean_extra_desc, clean_extra_amt
+            ))
+            
+            cursor.execute("DELETE FROM invoice_items WHERE invoice_number = ?", (invoice_number,))
+            for p_norm, p_name, qty, price, line_tot, order_idx in items_to_save:
+                cursor.execute("""
+                    INSERT INTO invoice_items (
+                        invoice_number, customer_norm, product_norm, product_display,
+                        quantity, price, total_amount, item_order
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """, (invoice_number, c_norm, p_norm, p_name, qty, price, line_tot, order_idx))
+                
+            # Perform customer, product, and purchase updates inside the exact same connection
+            record_customer(customer_name, area=clean_area, invoice_number=invoice_number, date_time=invoice_date, conn=conn)
+            for p_norm, p_name, qty, price, line_tot, _ in items_to_save:
+                record_product(p_name, price=price, invoice_number=invoice_number, date_time=invoice_date, conn=conn)
+                record_customer_purchase(customer_name, p_name, quantity=qty, price=price, invoice_number=invoice_number, date_time=invoice_date, conn=conn)
+                
+            conn.commit()
+            if not is_postgres():
+                try:
+                    conn.execute("PRAGMA wal_checkpoint(PASSIVE)")
+                except Exception:
+                    pass
+        except Exception as exc:
+            conn.rollback()
+            raise exc
+
 
 def search_customers(query: str, limit: int = 10):
     """Search customer suggestions by prefix / substring."""
@@ -440,10 +716,13 @@ def search_products(query: str, limit: int = 10):
             })
         return results
 
-def format_relative_date(dt_str: str) -> str:
-    """Helper to convert ISO timestamp to friendly relative date string."""
+def format_relative_date(dt_val) -> str:
+    """Helper to convert timestamp to friendly relative date string."""
     try:
-        dt = datetime.fromisoformat(str(dt_str).replace("Z", ""))
+        if isinstance(dt_val, (datetime, date)):
+            dt = datetime(dt_val.year, dt_val.month, dt_val.day)
+        else:
+            dt = datetime.fromisoformat(str(dt_val).replace("Z", ""))
         diff = datetime.now() - dt
         days = diff.days
         if days <= 0:
@@ -461,13 +740,16 @@ def format_relative_date(dt_str: str) -> str:
     except Exception:
         return ""
 
-def format_date_display(dt_str: str) -> str:
-    """Helper to format ISO timestamp as DD MMM YYYY."""
+def format_date_display(dt_val) -> str:
+    """Helper to format timestamp as DD MMM YYYY."""
     try:
-        dt = datetime.fromisoformat(str(dt_str).replace("Z", ""))
+        if isinstance(dt_val, (datetime, date)):
+            return dt_val.strftime('%d %b %Y')
+        dt = datetime.fromisoformat(str(dt_val).replace("Z", ""))
         return dt.strftime('%d %b %Y')
     except Exception:
-        return str(dt_str or "")[:10]
+        return str(dt_val or "")[:10]
+
 
 def get_customer_recommendations(shop_name: str, limit: int = 8):
     """Returns recommendations based on customer's order history."""
@@ -642,16 +924,20 @@ def get_dashboard_analytics(date_range: str = 'all'):
         chart_values = []
         chart_orders = []
         
+        day_expr = date_format_sql('invoice_date', 'day')
+        ym_expr = date_format_sql('invoice_date', 'month')
+
         if date_range in ['7d', '30d']:
-            cursor.execute("""
-                SELECT strftime('%Y-%m-%d', invoice_date) as day, SUM(total_amount), COUNT(*)
+            cursor.execute(f"""
+                SELECT {day_expr} as day, SUM(total_amount), COUNT(*)
                 FROM invoices
                 WHERE invoice_date >= ?
-                GROUP BY day
-                ORDER BY day ASC
+                GROUP BY {day_expr}
+                ORDER BY {day_expr} ASC
             """, (cutoff,))
             chart_rows = cursor.fetchall()
             for day_str, amt, cnt in chart_rows:
+                day_str = str(day_str or '')
                 try:
                     d_dt = datetime.strptime(day_str, '%Y-%m-%d')
                     lbl = d_dt.strftime('%d %b')
@@ -662,16 +948,18 @@ def get_dashboard_analytics(date_range: str = 'all'):
                 chart_orders.append(cnt)
         else:
             # Group by year-month
-            where_clause = f"WHERE invoice_date >= '{cutoff}'" if cutoff else ""
+            where_clause = "WHERE invoice_date >= ?" if cutoff else ""
+            params = (cutoff,) if cutoff else ()
             cursor.execute(f"""
-                SELECT strftime('%Y-%m', invoice_date) as ym, SUM(total_amount), COUNT(*)
+                SELECT {ym_expr} as ym, SUM(total_amount), COUNT(*)
                 FROM invoices
                 {where_clause}
-                GROUP BY ym
-                ORDER BY ym ASC
-            """)
+                GROUP BY {ym_expr}
+                ORDER BY {ym_expr} ASC
+            """, params)
             chart_rows = cursor.fetchall()
             for ym_str, amt, cnt in chart_rows:
+                ym_str = str(ym_str or '')
                 try:
                     d_dt = datetime.strptime(ym_str, '%Y-%m')
                     lbl = d_dt.strftime('%b %Y')
@@ -680,6 +968,7 @@ def get_dashboard_analytics(date_range: str = 'all'):
                 chart_labels.append(lbl)
                 chart_values.append(round(amt, 2))
                 chart_orders.append(cnt)
+
                 
         return {
             "dateRange": date_range,
@@ -882,8 +1171,9 @@ def get_customers_overview(q: str = '', sort_by: str = 'amount'):
             FROM customers c
             LEFT JOIN invoices i ON c.normalized_name = i.customer_norm
             {where_clause}
-            GROUP BY c.normalized_name
+            GROUP BY c.normalized_name, c.display_name, c.area, c.last_used_date
             ORDER BY {order_by_sql}
+
         """, params)
         rows = cursor.fetchall()
         
@@ -1008,8 +1298,9 @@ def get_products_overview(q: str = '', sort_by: str = 'quantity'):
             LEFT JOIN invoice_items it ON p.normalized_name = it.product_norm
             LEFT JOIN invoices i ON it.invoice_number = i.invoice_number
             {where_clause}
-            GROUP BY p.normalized_name
+            GROUP BY p.normalized_name, p.display_name, p.latest_price, p.last_used_date
             ORDER BY {order_by_sql}
+
         """, params)
         rows = cursor.fetchall()
         
@@ -1205,11 +1496,15 @@ def import_historical_data(directories, force_rebuild: bool = False):
 
                     with get_connection() as conn:
                         cursor = conn.cursor()
-                        cursor.execute(
-                            "INSERT OR REPLACE INTO processed_invoices (invoice_file, customer_norm, processed_at) VALUES (?, ?, ?)",
-                            (f.name, "orders_table", datetime.now().isoformat())
-                        )
+                        cursor.execute("""
+                            INSERT INTO processed_invoices (invoice_file, customer_norm, processed_at)
+                            VALUES (?, ?, ?)
+                            ON CONFLICT (invoice_file) DO UPDATE SET
+                                customer_norm = excluded.customer_norm,
+                                processed_at = excluded.processed_at
+                        """, (f.name, "orders_table", datetime.now().isoformat()))
                         conn.commit()
+
                     continue
 
                 shop_name = ""
@@ -1312,11 +1607,13 @@ def import_historical_data(directories, force_rebuild: bool = False):
                 
                 with get_connection() as conn:
                     cursor = conn.cursor()
-                    cursor.execute(
-                        "INSERT OR IGNORE INTO processed_invoices (invoice_file, customer_norm, processed_at) VALUES (?, ?, ?)",
-                        (f.name, normalize_text(shop_name), datetime.now().isoformat())
-                    )
+                    cursor.execute("""
+                        INSERT INTO processed_invoices (invoice_file, customer_norm, processed_at)
+                        VALUES (?, ?, ?)
+                        ON CONFLICT (invoice_file) DO NOTHING
+                    """, (f.name, normalize_text(shop_name), datetime.now().isoformat()))
                     conn.commit()
+
                     
             except Exception as err:
                 continue
@@ -1348,8 +1645,13 @@ def reset_all_learning_data():
         cursor.execute("DELETE FROM products")
         cursor.execute("DELETE FROM processed_invoices")
         conn.commit()
-        cursor.execute("VACUUM")
-    print("🧹 SQLite database tables wiped and vacuumed.")
+        if not is_postgres():
+            try:
+                cursor.execute("VACUUM")
+            except Exception:
+                pass
+    print("🧹 Database tables wiped.")
+
 
 def get_reset_preview(storage_dir=None):
     """
@@ -2105,6 +2407,139 @@ def permanently_delete_product_all_data(product_name: str, storage_dir=None):
         "mode": "permanent"
     }
 
+def get_customer_invoice_history(customer_name: str, exclude_invoice_number: str = None):
+    """
+    Retrieve historical previous orders for a customer directly from the database (PostgreSQL/SQLite).
+    Survives Render ephemeral filesystem restarts and guarantees permanent cloud history.
+    """
+    c_norm = normalize_text(customer_name)
+    if not c_norm:
+        return []
+        
+    init_db()
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        query = """
+            SELECT invoice_number, invoice_date, total_amount, filename
+            FROM invoices
+            WHERE customer_norm = ?
+        """
+        params = [c_norm]
+        if exclude_invoice_number:
+            query += " AND invoice_number != ?"
+            params.append(str(exclude_invoice_number).strip())
+            
+        query += " ORDER BY invoice_date ASC, id ASC"
+        cursor.execute(query, params)
+        rows = cursor.fetchall()
+        
+        previous_orders = []
+        for idx, row in enumerate(rows, 1):
+            inv_num, inv_dt, tot_amt, fname = row[0], row[1], row[2], row[3]
+            if isinstance(inv_dt, (datetime, date)):
+                dt_display = inv_dt.strftime('%d/%m/%Y')
+            else:
+                try:
+                    dt_obj = datetime.fromisoformat(str(inv_dt).replace('Z', ''))
+                    dt_display = dt_obj.strftime('%d/%m/%Y')
+                except Exception:
+                    dt_display = str(inv_dt)[:10]
+                    
+            previous_orders.append({
+                "order_number": idx,
+                "date": dt_display,
+                "total": float(tot_amt or 0.0),
+                "source_file": fname or f"{inv_num}.xlsx",
+                "invoice_number": inv_num
+            })
+            
+        return previous_orders
+
+def get_database_tables_and_rows(selected_table: str = 'invoices', limit: int = 250):
+    """
+    Unified database browser helper for both SQLite and PostgreSQL.
+    Returns tables list with row counts, selected table schema columns, and rows.
+    """
+    init_db()
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        tables_info = []
+
+        if is_postgres():
+            cursor.execute("""
+                SELECT table_name 
+                FROM information_schema.tables 
+                WHERE table_schema = 'public' AND table_type = 'BASE TABLE'
+                ORDER BY table_name
+            """)
+            raw_tables = [r[0] for r in cursor.fetchall()]
+        else:
+            cursor.execute("""
+                SELECT name 
+                FROM sqlite_master 
+                WHERE type='table' AND name NOT LIKE 'sqlite_%' 
+                ORDER BY name
+            """)
+            raw_tables = [r[0] for r in cursor.fetchall()]
+
+        for t_name in raw_tables:
+            try:
+                cnt = conn.execute(f'SELECT COUNT(*) FROM "{t_name}"').fetchone()[0]
+                tables_info.append({'name': t_name, 'count': cnt})
+            except Exception:
+                pass
+
+        allowed_names = [t['name'] for t in tables_info]
+        if not selected_table or selected_table not in allowed_names:
+            selected_table = 'invoices' if 'invoices' in allowed_names else (allowed_names[0] if allowed_names else '')
+
+        if not selected_table:
+            return {
+                'success': True,
+                'tables': [],
+                'selected_table': '',
+                'columns': [],
+                'rows': [],
+                'total_rows': 0,
+                'engine': get_database_engine_name()
+            }
+
+        # Fetch column names
+        if is_postgres():
+            cursor.execute("""
+                SELECT column_name 
+                FROM information_schema.columns 
+                WHERE table_schema = 'public' AND table_name = ?
+                ORDER BY ordinal_position
+            """, (selected_table,))
+            columns = [c[0] for c in cursor.fetchall()]
+        else:
+            cursor.execute(f'PRAGMA table_info("{selected_table}")')
+            columns = [c[1] for c in cursor.fetchall()]
+
+        order_clause = ' ORDER BY id DESC' if 'id' in columns else ''
+        cursor.execute(f'SELECT * FROM "{selected_table}"{order_clause} LIMIT ?', (limit,))
+        raw_rows = cursor.fetchall()
+        
+        rows = []
+        for r in raw_rows:
+            d = dict(r)
+            for k, v in d.items():
+                if isinstance(v, (datetime, date)):
+                    d[k] = v.isoformat()
+            rows.append(d)
+
+        return {
+            'success': True,
+            'tables': tables_info,
+            'selected_table': selected_table,
+            'columns': columns,
+            'rows': rows,
+            'total_rows': len(rows),
+            'engine': get_database_engine_name()
+        }
+
 # Initialize DB when module loads
 init_db()
+
 

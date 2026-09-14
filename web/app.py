@@ -97,7 +97,8 @@ def generate_invoice():
         
         customer = data['customer']
         products = data['products']
-        invoice_type = data.get('invoiceType', 'current')  # 'current' or 'all'
+        invoice_type = data.get('invoiceType') or data.get('invoice_type', 'current')  # 'current' or 'all'
+
         
         # Validate customer data
         required_fields = ['shopName', 'area']
@@ -163,7 +164,7 @@ def generate_invoice():
 
 @app.route('/api/download/<filename>')
 def download_file(filename):
-    """Download generated Excel file safely"""
+    """Download generated Excel file safely, regenerating from DB if disk was cleared"""
     try:
         safe_name = os.path.basename(filename)
         # Check temp directory first
@@ -187,9 +188,47 @@ def download_file(filename):
                         mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
                     )
                     
+        # If not on disk (e.g. Render restart on ephemeral storage), regenerate from database
+        try:
+            inv_match = re.search(r'(INV-\d{8}-\d{6}-\d{3})', safe_name)
+            inv_num = inv_match.group(1) if inv_match else safe_name.replace('.xlsx', '')
+            detail = learning_db.get_invoice_detail(inv_num)
+            if detail:
+                customer_data = {
+                    'shopName': detail.get('customerName', ''),
+                    'area': detail.get('area', '')
+                }
+                products_data = detail.get('products', [])
+                inv_date = detail.get('date')
+                inv_type = detail.get('invoiceType', 'current')
+                extra_desc = detail.get('extraChargesDesc', '')
+                extra_amt = detail.get('extraChargesAmount', 0.0)
+                
+                regen_filename, _ = create_excel_invoice(
+                    customer=customer_data,
+                    products=products_data,
+                    invoice_number=inv_num,
+                    invoice_type=inv_type,
+                    invoice_date=inv_date,
+                    is_edit=False,
+                    extra_charges_desc=extra_desc,
+                    extra_charges_amount=extra_amt
+                )
+                regen_path = Path(tempfile.gettempdir()) / regen_filename
+                if regen_path.exists():
+                    return send_file(
+                        str(regen_path),
+                        as_attachment=True,
+                        download_name=safe_name,
+                        mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+                    )
+        except Exception as regen_err:
+            print(f"Notice: Could not regenerate invoice from DB: {regen_err}")
+
         return jsonify({'error': 'File not found'}), 404
     except Exception as e:
         return jsonify({'error': f'Error downloading file: {str(e)}'}), 500
+
 
 @app.route('/api/recommendations', methods=['POST'])
 def get_recommendations():
@@ -337,6 +376,16 @@ def autocomplete_products():
         print(f"Error in autocomplete_products: {e}")
         return jsonify({'error': str(e)}), 500
 
+@app.route('/api/status')
+def get_system_status():
+    """Return database engine and environment status"""
+    return jsonify({
+        'success': True,
+        'engine': learning_db.get_database_engine_name(),
+        'is_postgres': learning_db.is_postgres(),
+        'platform': 'Render Production' if learning_db.is_postgres() else 'Local Windows Desktop'
+    })
+
 @app.route('/api/stats')
 def get_stats():
     """Get overall system statistics"""
@@ -347,6 +396,7 @@ def get_stats():
         
         return jsonify({
             'success': True,
+            'engine': learning_db.get_database_engine_name(),
             'stats': {
                 'total_customers': total_customers,
                 'total_products': total_products,
@@ -364,6 +414,7 @@ def get_dashboard():
         data = learning_db.get_dashboard_analytics(date_range)
         return jsonify({
             'success': True,
+            'engine': learning_db.get_database_engine_name(),
             **data
         })
     except Exception as e:
@@ -474,68 +525,45 @@ def get_sales_analytics():
 
 @app.route('/api/admin/export-db', methods=['GET'])
 def export_database():
-    """Download the current SQLite database file for sync or backup"""
+    """Download local SQLite database file for backup on Desktop"""
     try:
-        db_path = learning_db.DB_PATH
-        if not db_path.exists():
-            return jsonify({'error': 'Database file not found'}), 404
-        
-        # Checkpoint WAL buffer to ensure db file has all updates
-        try:
-            with learning_db.get_connection() as conn:
-                conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
-        except Exception as cp_err:
-            print(f"Notice: Checkpoint before export: {cp_err}")
+        if learning_db.is_postgres():
+            return jsonify({
+                'success': True,
+                'message': 'Application is running on Render PostgreSQL. Data is securely saved in the cloud.',
+                'engine': 'PostgreSQL'
+            })
 
-        return send_file(
-            str(db_path),
-            as_attachment=True,
-            download_name='invoice_learning.db',
-            mimetype='application/x-sqlite3'
-        )
+        db_path = learning_db.DB_PATH
+        if db_path.exists():
+            # Checkpoint WAL buffer to ensure db file has all updates
+            try:
+                with learning_db.get_connection() as conn:
+                    conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+            except Exception as cp_err:
+                print(f"Notice: Checkpoint before export: {cp_err}")
+
+            return send_file(
+                str(db_path),
+                as_attachment=True,
+                download_name='invoice_learning.db',
+                mimetype='application/x-sqlite3'
+            )
+        else:
+            return jsonify({'error': 'Local SQLite database file not found'}), 404
     except Exception as e:
         return jsonify({'error': f'Failed to export database: {str(e)}'}), 500
 
 @app.route('/api/admin/raw-database')
 def get_raw_database():
-    """Return raw SQLite table schema and rows for database viewer"""
+    """Return raw table schema and rows for database viewer (PostgreSQL or SQLite)"""
     try:
-        with learning_db.get_connection() as conn:
-            conn.row_factory = sqlite3.Row
-            cursor = conn.cursor()
-            
-            cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name")
-            tables_info = []
-            for t_row in cursor.fetchall():
-                t_name = t_row['name']
-                cnt = cursor.execute(f'SELECT COUNT(*) FROM "{t_name}"').fetchone()[0]
-                tables_info.append({'name': t_name, 'count': cnt})
-
-            selected_table = request.args.get('table', 'invoices')
-            allowed_names = [t['name'] for t in tables_info]
-            if selected_table not in allowed_names:
-                selected_table = 'invoices' if 'invoices' in allowed_names else (allowed_names[0] if allowed_names else '')
-
-            if not selected_table:
-                return jsonify({'success': True, 'tables': [], 'selected_table': '', 'columns': [], 'rows': []})
-
-            cursor.execute(f'PRAGMA table_info("{selected_table}")')
-            columns = [c[1] for c in cursor.fetchall()]
-
-            order_clause = ' ORDER BY id DESC' if 'id' in columns else ''
-            cursor.execute(f'SELECT * FROM "{selected_table}"{order_clause} LIMIT 250')
-            rows = [dict(r) for r in cursor.fetchall()]
-
-            return jsonify({
-                'success': True,
-                'tables': tables_info,
-                'selected_table': selected_table,
-                'columns': columns,
-                'rows': rows,
-                'total_rows': len(rows)
-            })
+        selected_table = request.args.get('table', 'invoices')
+        res = learning_db.get_database_tables_and_rows(selected_table=selected_table, limit=250)
+        return jsonify(res)
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+
 
 @app.route('/api/admin/reset-preview')
 def reset_preview():
@@ -1265,14 +1293,17 @@ def create_excel_invoice(customer, products, invoice_number, invoice_type='curre
     else:
         current_date = datetime.now().strftime('%d/%m/%Y')
     
-    # If 'all', load history strictly from this customer's folder
+    # If 'all', load history strictly from database (PostgreSQL/SQLite), with fallback to folder scan
     if invoice_type == 'all':
-        previous_orders = load_customer_history(customer_dir)
-        if is_edit:
-            # Filter out this existing invoice from previous orders to prevent double-counting
-            previous_orders = [o for o in previous_orders if str(o.get('order_number', '')).strip() != str(invoice_number).strip()]
+        previous_orders = learning_db.get_customer_invoice_history(shop_name, exclude_invoice_number=invoice_number if is_edit else None)
+        if not previous_orders:
+            previous_orders = load_customer_history(customer_dir)
+            if is_edit:
+                # Filter out this existing invoice from previous orders to prevent double-counting
+                previous_orders = [o for o in previous_orders if str(o.get('order_number', '')).strip() != str(invoice_number).strip()]
     else:
         previous_orders = []
+
         
     # Generate unique filename using existing invoice number and timestamp
     safe_inv = re.sub(r'[\\/*?:"<>|\s]', "", str(invoice_number))

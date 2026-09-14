@@ -10,6 +10,12 @@ import subprocess
 import os
 from pathlib import Path
 
+# Explicitly configure Windows Desktop App to use local SQLite database
+os.environ['DATABASE_ENGINE'] = 'sqlite'
+# Ensure cloud connection strings are purged from the desktop app process
+for env_key in ['DATABASE_URL', 'POSTGRES_URL', 'POSTGRESQL_URL']:
+    os.environ.pop(env_key, None)
+
 # Add web directory to path
 ROOT_DIR = Path(__file__).resolve().parent
 WEB_DIR = ROOT_DIR / "web"

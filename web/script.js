@@ -16,8 +16,32 @@ const generateInvoiceBtn = document.getElementById('generateInvoiceBtn');
 const statusMessage = document.getElementById('statusMessage');
 const loadingOverlay = document.getElementById('loadingOverlay');
 
+async function checkSystemEngineStatus() {
+    try {
+        const res = await fetch('/api/status');
+        const data = await res.json();
+        if (data.success) {
+            const statusTextEl = document.getElementById('systemStatusText');
+            const dbTitleEl = document.getElementById('dbBrowserTitle');
+            const dbSubtitleEl = document.getElementById('dbBrowserSubtitle');
+            if (data.is_postgres) {
+                if (statusTextEl) statusTextEl.textContent = 'PostgreSQL Cloud DB Active';
+                if (dbTitleEl) dbTitleEl.textContent = '🗄️ PostgreSQL Database Browser';
+                if (dbSubtitleEl) dbSubtitleEl.textContent = 'Render Production Cloud Database (PostgreSQL: bbExcel-postgre)';
+            } else {
+                if (statusTextEl) statusTextEl.textContent = 'SQLite Local DB Active';
+                if (dbTitleEl) dbTitleEl.textContent = '🗄️ SQLite Database Browser';
+                if (dbSubtitleEl) dbSubtitleEl.textContent = 'Local Windows Desktop Database (SQLite: invoice_learning.db)';
+            }
+        }
+    } catch (e) {
+        console.warn('Status check warning:', e);
+    }
+}
+
 // Event listeners
 document.addEventListener('DOMContentLoaded', function() {
+    checkSystemEngineStatus();
     if (window.location.protocol === 'file:') {
         alert('⚠️ NOTICE: You opened this file directly from your disk (file://).\n\nTo connect to the database and generate invoices, please open:\n• http://localhost:5000\n• or double-click "run_desktop_app.bat"');
     }
@@ -4059,6 +4083,19 @@ async function loadDatabaseBrowser(tableName = null) {
         const res = await fetch(`/api/admin/raw-database?table=${encodeURIComponent(currentSelectedDbTable)}`);
         const data = await res.json();
         if (!data.success) throw new Error(data.error || 'Failed to fetch database data');
+
+        const dbTitleEl = document.getElementById('dbBrowserTitle');
+        const dbSubtitleEl = document.getElementById('dbBrowserSubtitle');
+        const statusTextEl = document.getElementById('systemStatusText');
+        if (data.engine === 'PostgreSQL') {
+            if (dbTitleEl) dbTitleEl.textContent = '🗄️ PostgreSQL Database Browser';
+            if (dbSubtitleEl) dbSubtitleEl.textContent = 'Render Production Cloud Database (PostgreSQL: bbExcel-postgre)';
+            if (statusTextEl) statusTextEl.textContent = 'PostgreSQL Cloud DB Active';
+        } else {
+            if (dbTitleEl) dbTitleEl.textContent = '🗄️ SQLite Database Browser';
+            if (dbSubtitleEl) dbSubtitleEl.textContent = 'Local Windows Desktop Database (SQLite: invoice_learning.db)';
+            if (statusTextEl) statusTextEl.textContent = 'SQLite Local DB Active';
+        }
 
         currentSelectedDbTable = data.selected_table;
         currentDbRawRows = data.rows || [];

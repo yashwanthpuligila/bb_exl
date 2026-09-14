@@ -1,6 +1,6 @@
 """
-Database Viewer & Cloud Sync Utility for Invoice ERP
-View local database, inspect live Render cloud database, or sync cloud data to PC.
+Database Viewer for Invoice ERP
+View local PC SQLite database or inspect live Render cloud PostgreSQL database (Independent databases, No Sync).
 """
 import sqlite3
 import urllib.request
@@ -138,70 +138,28 @@ def show_cloud_database():
         print(f"❌ Failed to reach cloud database: {e}")
         print("   (Note: If Render was sleeping, it may take 30-40 seconds to wake up. Please try again).")
 
-def sync_cloud_to_local():
-    saved_url = get_saved_render_url()
-    prompt = f"Enter your Render URL [{saved_url}]: " if saved_url else "Enter your Render URL (e.g. https://invoice-erp-xxxx.onrender.com): "
-    raw_url = input(prompt).strip()
-    render_url = raw_url if raw_url else saved_url
-    if not render_url:
-        print("❌ No Render URL provided.")
-        return
-    render_url = save_render_url(render_url)
-
-    export_url = f"{render_url}/api/admin/export-db"
-    print(f"\n📥 Downloading live database from: {export_url}...")
-
-    try:
-        req = urllib.request.Request(export_url, headers={"User-Agent": "InvoiceSync/1.0"})
-        with urllib.request.urlopen(req, timeout=20) as resp:
-            content = resp.read()
-
-        if len(content) < 100:
-            print("❌ Downloaded file appears too small or invalid.")
-            return
-
-        # Backup current local DB before overwriting
-        if DB_PATH.exists():
-            backup_path = DB_PATH.with_suffix(".db.backup")
-            try:
-                DB_PATH.rename(backup_path)
-            except Exception:
-                pass
-
-        DB_PATH.write_bytes(content)
-        print("✅ SUCCESS! Cloud database downloaded and synced to your local PC:")
-        print(f"   📁 {DB_PATH} ({len(content):,} bytes)")
-
-        # Show updated local database
-        show_local_database()
-
-    except Exception as e:
-        print(f"❌ Failed to sync from cloud: {e}")
-        print("   (Ensure your Render URL is correct and the latest code is deployed on Render).")
-
 def main():
     while True:
         print("\n=======================================================")
         print("       SRI LAXMI GAYATRI TRADERS - DATABASE HUB        ")
         print("=======================================================")
-        print("  [1] View Local PC Database")
-        print("  [2] View Live Cloud Database (Render URL)")
-        print("  [3] Sync & Download Cloud Database to this PC")
-        print("  [4] Exit")
+        print("  [1] View Local PC Database (SQLite)")
+        print("  [2] View Live Cloud Database (Render PostgreSQL)")
+        print("  [3] Exit")
         print("-------------------------------------------------------")
-        choice = input("Select an option [1-4] (default 1): ").strip()
+        print("  ℹ️  Local SQLite & Render PostgreSQL are independent databases (No sync).")
+        print("-------------------------------------------------------")
+        choice = input("Select an option [1-3] (default 1): ").strip()
 
         if choice in ["", "1"]:
             show_local_database()
         elif choice == "2":
             show_cloud_database()
         elif choice == "3":
-            sync_cloud_to_local()
-        elif choice == "4":
             print("Goodbye!")
             break
         else:
-            print("Invalid choice, please select 1, 2, 3, or 4.")
+            print("Invalid choice, please select 1, 2, or 3.")
 
 if __name__ == "__main__":
     main()
