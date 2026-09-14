@@ -5,8 +5,9 @@ import sqlite3
 from pathlib import Path
 
 BASE_URL = "http://127.0.0.1:5000"
-DB_PATH = Path(r"E:\bb_exl\web\invoice_learning.db")
-STORAGE_DIR = Path(r"E:\bb_exl\Invoice Storage")
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+DB_PATH = PROJECT_ROOT / "web" / "invoice_learning.db"
+STORAGE_DIR = PROJECT_ROOT / "Invoice Storage"
 
 def make_req(endpoint, method="GET", data=None):
     url = f"{BASE_URL}{endpoint}"

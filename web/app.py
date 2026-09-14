@@ -1,4 +1,4 @@
-from flask import Flask, request, jsonify, send_file
+from flask import Flask, request, jsonify, send_file, send_from_directory
 from flask_cors import CORS
 import os
 import re
@@ -13,8 +13,14 @@ from recommendation_engine import recommendation_engine
 import learning_db
 import shutil
 
-# Main Invoice Storage Directory at project root: e:\bb_exl\Invoice Storage
-INVOICE_STORAGE_DIR = (Path(__file__).resolve().parent.parent / "Invoice Storage").resolve()
+# Paths based on script location
+WEB_DIR = Path(__file__).resolve().parent
+PROJECT_ROOT = WEB_DIR.parent
+if (PROJECT_ROOT / "Invoice Storage").exists() or (PROJECT_ROOT / "web").exists():
+    INVOICE_STORAGE_DIR = (PROJECT_ROOT / "Invoice Storage").resolve()
+else:
+    INVOICE_STORAGE_DIR = (WEB_DIR / "Invoice Storage").resolve()
+INVOICE_STORAGE_DIR.mkdir(parents=True, exist_ok=True)
 
 app = Flask(__name__)
 CORS(app)  # Enable CORS for all routes
@@ -25,14 +31,14 @@ def initialize_recommendations():
     """Initialize ML recommendation engine and learning DB with historical data"""
     if not hasattr(app, 'recommendations_loaded'):
         print("🤖 Loading ML recommendation engine...")
-        recommendation_engine.load_data_from_invoices('.')
-        recommendation_engine.load_data_from_invoices('..')  # Check parent directory too
+        recommendation_engine.load_data_from_invoices(str(WEB_DIR))
+        recommendation_engine.load_data_from_invoices(str(PROJECT_ROOT))
         if INVOICE_STORAGE_DIR.exists():
             recommendation_engine.load_data_from_invoices(str(INVOICE_STORAGE_DIR))
         
         # Initialize learning db from historical invoices
         try:
-            dirs_to_check = ['.', '..']
+            dirs_to_check = [str(WEB_DIR), str(PROJECT_ROOT)]
             if INVOICE_STORAGE_DIR.exists():
                 dirs_to_check.append(str(INVOICE_STORAGE_DIR))
             learning_db.import_historical_data(dirs_to_check)
@@ -45,17 +51,38 @@ def initialize_recommendations():
 @app.route('/')
 def index():
     """Serve the main page"""
-    return send_file('index.html')
+    return send_file(WEB_DIR / 'index.html')
 
 @app.route('/styles.css')
 def styles():
     """Serve CSS file"""
-    return send_file('styles.css', mimetype='text/css')
+    return send_file(WEB_DIR / 'styles.css', mimetype='text/css')
 
 @app.route('/script.js')
 def script():
     """Serve JavaScript file"""
-    return send_file('script.js', mimetype='application/javascript')
+    return send_file(WEB_DIR / 'script.js', mimetype='application/javascript')
+
+@app.route('/manifest.json')
+def manifest():
+    """Serve PWA manifest"""
+    return send_file(WEB_DIR / 'manifest.json', mimetype='application/manifest+json')
+
+@app.route('/sw.js')
+def service_worker():
+    """Serve PWA service worker"""
+    return send_file(WEB_DIR / 'sw.js', mimetype='application/javascript')
+
+@app.route('/icons/<path:filename>')
+def serve_icon(filename):
+    """Serve PWA icons"""
+    icons_dir = WEB_DIR / 'icons'
+    return send_from_directory(str(icons_dir), filename)
+
+@app.route('/favicon.ico')
+def favicon():
+    """Serve favicon"""
+    return send_file(WEB_DIR / 'icons' / 'favicon.png', mimetype='image/png')
 
 @app.route('/api/generate-invoice', methods=['POST'])
 def generate_invoice():
@@ -1232,4 +1259,5 @@ if __name__ == '__main__':
     print("📄 Open your browser and go to: http://localhost:5000")
     print("🛑 Press Ctrl+C to stop the server")
     
-    app.run(debug=True, host='0.0.0.0', port=5000)
+    port = int(os.environ.get('PORT', 5000))
+    app.run(debug=True, host='0.0.0.0', port=port)

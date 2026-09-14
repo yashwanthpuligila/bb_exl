@@ -3352,6 +3352,40 @@ body {
     }
 }
 
+/* --- Install PWA Button in Sidebar --- */
+.btn-install-pwa {
+    margin-bottom: 8px;
+    width: 100%;
+    padding: 9px 12px;
+    border-radius: 8px;
+    background: linear-gradient(135deg, #2563EB 0%, #1D4ED8 100%);
+    color: #FFFFFF;
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    font-size: 0.82rem;
+    font-weight: 600;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    transition: all 0.25s ease;
+    box-shadow: 0 2px 10px rgba(37, 99, 235, 0.35);
+}
+
+.btn-install-pwa:hover {
+    background: linear-gradient(135deg, #1D4ED8 0%, #1E40AF 100%);
+    box-shadow: 0 4px 14px rgba(37, 99, 235, 0.5);
+    transform: translateY(-1px);
+}
+
+.btn-install-pwa.installed {
+    background: rgba(16, 185, 129, 0.15);
+    color: #6EE7B7;
+    border-color: rgba(16, 185, 129, 0.3);
+    box-shadow: none;
+    cursor: default;
+}
+
 /* --- Danger Reset Button in Sidebar --- */
 .btn-danger-reset {
     margin-top: 6px;

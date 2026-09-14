@@ -1,21 +1,27 @@
 #!/bin/bash
 # Quick update script for pushing changes to production
+set -e
 
 echo "🔄 Updating Invoice Generator App on EC2..."
 
-# Update application
-cd /home/ubuntu/invoice-app
+# Auto-detect directory
+if [ -d "/home/ubuntu/invoice-app" ]; then
+    cd /home/ubuntu/invoice-app
+fi
+
+if [ -d ".git" ]; then
+    echo "📥 Pulling latest git changes..."
+    git pull
+fi
+
 source venv/bin/activate
 
-# If using git
-# git pull
-
-# Install any new dependencies
+echo "📚 Updating dependencies..."
 pip install -r requirements.txt
 
-# Restart the service
+echo "🔄 Restarting application service..."
 sudo systemctl restart invoice-app
+sudo systemctl restart nginx
 
-echo "✅ Application updated and restarted!"
-echo "🌐 Check status at: http://YOUR_EC2_PUBLIC_IP"
+echo "✅ Application updated and running!"
 sudo systemctl status invoice-app --no-pager

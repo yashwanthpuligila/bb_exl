@@ -18,6 +18,7 @@ const loadingOverlay = document.getElementById('loadingOverlay');
 
 // Event listeners
 document.addEventListener('DOMContentLoaded', function() {
+    initPwaInstall();
     addProductBtn.addEventListener('click', addProduct);
     clearAllBtn.addEventListener('click', clearAll);
     generateInvoiceBtn.addEventListener('click', generateInvoice);
@@ -3958,4 +3959,58 @@ function initEditInvoiceModal() {
     window.addEditProductRow = addEditProductRow;
     window.calculateEditTotals = calculateEditTotals;
     window.executeSaveInvoiceEdit = executeSaveInvoiceEdit;
+}
+
+// --- PWA Installation & Service Worker ---
+function initPwaInstall() {
+    if ('serviceWorker' in navigator) {
+        window.addEventListener('load', () => {
+            navigator.serviceWorker.register('/sw.js')
+                .then(reg => console.log('✅ PWA ServiceWorker active:', reg.scope))
+                .catch(err => console.warn('PWA ServiceWorker notice:', err));
+        });
+    }
+
+    let deferredPrompt = null;
+    const btnInstall = document.getElementById('btnInstallPwa');
+    if (!btnInstall) return;
+
+    const isStandalone = window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone;
+
+    if (isStandalone) {
+        btnInstall.style.display = 'flex';
+        btnInstall.classList.add('installed');
+        btnInstall.innerHTML = '<span class="btn-icon">✓</span> <span class="btn-text">App Active</span>';
+        btnInstall.disabled = true;
+        return;
+    }
+
+    btnInstall.style.display = 'flex';
+
+    window.addEventListener('beforeinstallprompt', (e) => {
+        e.preventDefault();
+        deferredPrompt = e;
+        btnInstall.style.display = 'flex';
+    });
+
+    btnInstall.addEventListener('click', async () => {
+        if (deferredPrompt) {
+            deferredPrompt.prompt();
+            const { outcome } = await deferredPrompt.userChoice;
+            if (outcome === 'accepted') {
+                btnInstall.classList.add('installed');
+                btnInstall.innerHTML = '<span class="btn-icon">✓</span> <span class="btn-text">Installed</span>';
+                btnInstall.disabled = true;
+            }
+            deferredPrompt = null;
+        } else {
+            alert('📱 To Install as an App:\n\n• Windows / Mac (Chrome & Edge): Look for the "Install" icon (⊕ or screen) on the right side of your address bar.\n• iPhone / iPad (Safari): Tap the Share button (square with arrow) and select "Add to Home Screen".\n• Android (Chrome): Tap the three dots (⋮) menu and choose "Install App" or "Add to Home Screen".');
+        }
+    });
+
+    window.addEventListener('appinstalled', () => {
+        btnInstall.classList.add('installed');
+        btnInstall.innerHTML = '<span class="btn-icon">✓</span> <span class="btn-text">Installed</span>';
+        btnInstall.disabled = true;
+    });
 }

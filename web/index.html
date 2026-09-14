@@ -10,6 +10,13 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Noto+Sans+Devanagari:wght@400;600;700&family=Noto+Sans+Telugu:wght@400;600;700&display=swap" rel="stylesheet">
     <!-- Chart.js for interactive analytics -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <meta name="theme-color" content="#2563eb">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="Invoice ERP">
+    <link rel="manifest" href="/manifest.json">
+    <link rel="icon" type="image/png" href="/icons/favicon.png">
+    <link rel="apple-touch-icon" href="/icons/icon-192.png">
     <link rel="stylesheet" href="styles.css">
 </head>
 <body>
@@ -53,6 +60,10 @@
             </nav>
 
             <div class="sidebar-footer">
+                <button type="button" class="btn-install-pwa" id="btnInstallPwa" title="Install as Desktop or Mobile App">
+                    <span class="btn-icon">📲</span>
+                    <span class="btn-text">Install App</span>
+                </button>
                 <div class="system-status-indicator">
                     <span class="status-dot"></span>
                     <span class="status-text">SQLite Learning DB Active</span>

@@ -1,0 +1,9 @@
+services:
+  - type: web
+    name: invoice-erp
+    runtime: python
+    buildCommand: pip install -r web/requirements.txt
+    startCommand: gunicorn --chdir web --workers 2 --threads 2 --timeout 120 app:app
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.9

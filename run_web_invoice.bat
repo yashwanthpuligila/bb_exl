@@ -1,7 +1,6 @@
 @echo off
-echo Installing requirements for Web Invoice Generator...
-cd web
-pip install -r requirements.txt
+cd /d "%~dp0web"
+echo Starting Web Invoice Generator...
 echo.
 echo Starting Web Invoice Generator...
 echo.

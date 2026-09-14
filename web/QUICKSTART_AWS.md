@@ -13,25 +13,39 @@
 - Wait for instance state: "Running"
 - Copy the **Public IPv4 address** (e.g., 54.123.45.67)
 
-### 3. Transfer Files
-```powershell
-# From PowerShell in d:\bb_exl\web folder
-scp -i C:\path\to\invoice-app-key.pem -r * ubuntu@YOUR_EC2_IP:/home/ubuntu/
-```
+### 3. Deploy (Choose Method A or B)
 
-### 4. Connect & Deploy
+#### Method A: Via Git Clone (Recommended - Fastest)
+Connect to your EC2 instance:
 ```bash
-# Connect to EC2
 ssh -i invoice-app-key.pem ubuntu@YOUR_EC2_IP
-
-# Navigate and run deployment
-cd /home/ubuntu
+```
+Inside EC2, run:
+```bash
+git clone https://github.com/yashwanthpuligila/bb_exl.git
+cd bb_exl/web
 chmod +x deploy_ec2.sh
 ./deploy_ec2.sh
 ```
 
-### 5. Access Your App
-Open browser: `http://YOUR_EC2_IP`
+#### Method B: Via SCP from Local Machine
+From PowerShell on your local Windows PC:
+```powershell
+scp -i "C:\path\to\invoice-app-key.pem" -r d:\bb_exl\web\* ubuntu@YOUR_EC2_IP:/home/ubuntu/invoice-app/
+```
+Then SSH in and run:
+```bash
+ssh -i invoice-app-key.pem ubuntu@YOUR_EC2_IP
+cd /home/ubuntu/invoice-app
+chmod +x deploy_ec2.sh
+./deploy_ec2.sh
+```
+
+### 4. Access Your App
+Open your browser and navigate to:
+```
+http://YOUR_EC2_PUBLIC_IP
+```
 
 ---
 
