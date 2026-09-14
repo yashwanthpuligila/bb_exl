@@ -1787,6 +1787,8 @@ def get_invoice_edit_history(invoice_number: str):
             }
             for r in rows
         ]
+
+def get_customer_delete_preview(customer_name: str, storage_dir=None):
     """Get preview details for deleting a customer."""
     init_db()
     c_norm = normalize_text(customer_name)
