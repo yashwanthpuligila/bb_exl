@@ -391,65 +391,24 @@ def get_system_status():
     })
 
 _last_desktop_heartbeat = time.time()
-_desktop_client_connected = False
-_shutdown_timer = None
-_shutdown_lock = threading.Lock()
-
-def _schedule_graceful_shutdown(delay=2.0):
-    global _shutdown_timer
-    with _shutdown_lock:
-        if _shutdown_timer is not None:
-            _shutdown_timer.cancel()
-        print(f"⏱️ Desktop shutdown scheduled in {delay}s...")
-        def _do_exit():
-            print("🛑 Desktop shutdown confirmed. Cleanly stopping backend...")
-            os._exit(0)
-        _shutdown_timer = threading.Timer(delay, _do_exit)
-        _shutdown_timer.daemon = True
-        _shutdown_timer.start()
-
-def _cancel_scheduled_shutdown():
-    global _shutdown_timer
-    with _shutdown_lock:
-        if _shutdown_timer is not None:
-            print("🔄 Desktop client reconnected. Cancelling scheduled shutdown.")
-            _shutdown_timer.cancel()
-            _shutdown_timer = None
+_desktop_client_connected = True
 
 @app.route('/api/desktop/heartbeat', methods=['GET', 'POST'])
 def desktop_heartbeat():
-    """Receive heartbeat pings from desktop frontend"""
-    global _last_desktop_heartbeat, _desktop_client_connected
+    """Informational heartbeat ping endpoint"""
+    global _last_desktop_heartbeat
     _last_desktop_heartbeat = time.time()
-    _desktop_client_connected = True
-    _cancel_scheduled_shutdown()
     return jsonify({'status': 'ok', 'timestamp': _last_desktop_heartbeat})
 
 @app.route('/api/desktop/shutdown', methods=['GET', 'POST'])
 def desktop_shutdown():
-    """Trigger graceful backend shutdown from desktop client"""
-    if os.environ.get('DESKTOP_MODE') == '1':
-        _schedule_graceful_shutdown(delay=2.0)
+    """Graceful backend shutdown hook invoked by desktop_app.py process manager"""
+    def _delayed_exit():
+        time.sleep(0.5)
+        os._exit(0)
+    threading.Thread(target=_delayed_exit, daemon=True).start()
     return jsonify({'status': 'shutdown_scheduled'})
 
-def _start_desktop_watchdog():
-    if os.environ.get('DESKTOP_MODE') == '1':
-        def _watchdog_loop():
-            # Allow up to 45 seconds on cold start for initial frontend connection
-            for _ in range(45):
-                time.sleep(1)
-                if _desktop_client_connected:
-                    break
-            while True:
-                time.sleep(2)
-                # If desktop window connected then went silent for > 8s, cleanly exit
-                if _desktop_client_connected and (time.time() - _last_desktop_heartbeat > 8):
-                    print("⚠️ Desktop client disconnected. Stopping backend process...")
-                    os._exit(0)
-        watchdog = threading.Thread(target=_watchdog_loop, daemon=True)
-        watchdog.start()
-
-_start_desktop_watchdog()
 
 @app.route('/api/stats')
 def get_stats():
@@ -1186,10 +1145,6 @@ def build_invoice_workbook(customer, products, invoice_number, current_date, inv
     ws['D5'] = f"📅 Date: {current_date}"
     ws['D5'].font = date_font
     ws['D5'].alignment = Alignment(horizontal='right')
-    
-    ws['D6'] = f"Bill Type: {'All Bills (With History)' if invoice_type == 'all' else 'Current Bill Only'}"
-    ws['D6'].font = bold_font
-    ws['D6'].alignment = Alignment(horizontal='right')
     
     # Customer Details
     ws['A6'] = "BILL TO / BUYER DETAILS:"

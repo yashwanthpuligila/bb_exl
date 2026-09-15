@@ -288,15 +288,12 @@ def main():
         ]
         browser_proc = subprocess.Popen(cmd)
 
-        time.sleep(2)
+        time.sleep(1)
         while True:
-            if managed_by_us and (backend_proc is None or backend_proc.poll() is not None):
+            if browser_proc.poll() is not None:
+                print("🌐 Dedicated desktop window closed by user.")
                 break
-            try:
-                req = urllib.request.Request(f"{app_url}/api/status", headers={'User-Agent': 'DesktopLauncher'})
-                with urllib.request.urlopen(req, timeout=1.5) as resp:
-                    pass
-            except Exception:
+            if managed_by_us and (backend_proc is None or backend_proc.poll() is not None):
                 break
             time.sleep(1.0)
 

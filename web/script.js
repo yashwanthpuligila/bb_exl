@@ -39,15 +39,13 @@ async function checkSystemEngineStatus() {
     }
 }
 
-// Desktop Window Lifecycle Heartbeat & Graceful Shutdown
+// Desktop Window Lifecycle Heartbeat (Informational only; does not terminate backend)
 function initDesktopLifecycle() {
     if (window.location.protocol === 'file:') return;
     
     const sessionId = 'desktop_' + Math.random().toString(36).substring(2, 10);
-    let heartbeatActive = true;
 
     function sendHeartbeat() {
-        if (!heartbeatActive) return;
         fetch('/api/desktop/heartbeat?session=' + sessionId, {
             method: 'POST',
             cache: 'no-store'
@@ -55,26 +53,7 @@ function initDesktopLifecycle() {
     }
 
     sendHeartbeat();
-    const heartbeatInterval = setInterval(sendHeartbeat, 2500);
-
-    function onWindowClosing() {
-        heartbeatActive = false;
-        clearInterval(heartbeatInterval);
-        try {
-            if (navigator.sendBeacon) {
-                navigator.sendBeacon('/api/desktop/shutdown?session=' + sessionId);
-            } else {
-                fetch('/api/desktop/shutdown?session=' + sessionId, {
-                    method: 'POST',
-                    keepalive: true,
-                    cache: 'no-store'
-                }).catch(function() {});
-            }
-        } catch (e) {}
-    }
-
-    window.addEventListener('beforeunload', onWindowClosing);
-    window.addEventListener('pagehide', onWindowClosing);
+    setInterval(sendHeartbeat, 5000);
 }
 
 // Event listeners
@@ -860,12 +839,6 @@ function renderInvoiceHTML(invoiceData, historyData) {
                             <tr>
                                 <td class="lbl">Date:</td>
                                 <td class="val">${escapeHtml(invoiceData.date)}</td>
-                            </tr>
-                            <tr>
-                                <td class="lbl">Bill Type:</td>
-                                <td class="val">
-                                    <span class="bill-type-tag">${isHistory ? 'All Bills (With History)' : 'Current Bill Only'}</span>
-                                </td>
                             </tr>
                             <tr>
                                 <td class="lbl">Place of Supply:</td>
@@ -2284,11 +2257,14 @@ async function loadInvoicesTable() {
 
     try {
         const url = `/api/invoices?q=${encodeURIComponent(q)}&customer=${encodeURIComponent(customer)}&range=${encodeURIComponent(dateRange)}&type=${encodeURIComponent(typeFilter)}&sort_by=${sortBy}&sort_order=${sortOrder}&limit=150`;
+        console.log(`[REQUEST] GET ${url}`);
         const res = await fetch(url);
+        console.log(`[RESPONSE] GET ${url} -> ${res.status} ${res.statusText}`);
         const data = await res.json();
+        console.log(`[BODY] /api/invoices: totalCount=${data.totalCount}, success=${data.success}`);
 
         if (!data.success) {
-            if (tbody) tbody.innerHTML = `<tr><td colspan="8" class="loading-state">${data.error || 'Failed to load invoices'}</td></tr>`;
+            if (tbody) tbody.innerHTML = `<tr><td colspan="8" class="loading-state" style="color:#ef4444;">${escapeHtml(data.error || 'Failed to load invoices')}</td></tr>`;
             return;
         }
 
@@ -2391,8 +2367,8 @@ async function loadInvoicesTable() {
         }
 
     } catch (err) {
-        console.error('Error loading invoices table:', err);
-        if (tbody) tbody.innerHTML = '<tr><td colspan="9" class="loading-state">Error loading invoices.</td></tr>';
+        console.error('[API ERROR] GET /api/invoices:', err);
+        if (tbody) tbody.innerHTML = `<tr><td colspan="9" class="loading-state" style="color:#ef4444;">Error loading invoices: ${escapeHtml(err.message)}</td></tr>`;
     }
 }
 
@@ -2408,10 +2384,16 @@ async function loadCustomersTable() {
 
     try {
         const url = `/api/customers?q=${encodeURIComponent(q)}&sort_by=${encodeURIComponent(sortBy)}`;
+        console.log(`[REQUEST] GET ${url}`);
         const res = await fetch(url);
+        console.log(`[RESPONSE] GET ${url} -> ${res.status} ${res.statusText}`);
         const data = await res.json();
+        console.log(`[BODY] /api/customers: totalCount=${data.totalCount}, success=${data.success}`);
 
-        if (!data.success) return;
+        if (!data.success) {
+            if (grid) grid.innerHTML = `<div class="loading-state" style="color:#ef4444;">Failed to load customers: ${escapeHtml(data.error || 'Server error')}</div>`;
+            return;
+        }
 
         const countEl = document.getElementById('customersTotalCount');
         if (countEl) countEl.textContent = data.totalCount || 0;
@@ -2492,10 +2474,16 @@ async function loadProductsTable() {
 
     try {
         const url = `/api/products?q=${encodeURIComponent(q)}&sort_by=${encodeURIComponent(sortBy)}`;
+        console.log(`[REQUEST] GET ${url}`);
         const res = await fetch(url);
+        console.log(`[RESPONSE] GET ${url} -> ${res.status} ${res.statusText}`);
         const data = await res.json();
+        console.log(`[BODY] /api/products: totalCount=${data.totalCount}, success=${data.success}`);
 
-        if (!data.success) return;
+        if (!data.success) {
+            if (tbody) tbody.innerHTML = `<tr><td colspan="8" class="loading-state" style="color:#ef4444;">${escapeHtml(data.error || 'Failed to load products')}</td></tr>`;
+            return;
+        }
 
         const countEl = document.getElementById('productsTotalCount');
         if (countEl) countEl.textContent = data.totalCount || 0;
@@ -2547,7 +2535,8 @@ async function loadProductsTable() {
         }
 
     } catch (e) {
-        console.error('Error loading products:', e);
+        console.error('[API ERROR] GET /api/products:', e);
+        if (tbody) tbody.innerHTML = `<tr><td colspan="8" class="loading-state" style="color:#ef4444;">Error loading products: ${escapeHtml(e.message)}</td></tr>`;
     }
 }
 
@@ -4206,8 +4195,12 @@ async function loadDatabaseBrowser(tableName = null) {
     }
 
     try {
-        const res = await fetch(`/api/admin/raw-database?table=${encodeURIComponent(currentSelectedDbTable)}`);
+        const url = `/api/admin/raw-database?table=${encodeURIComponent(currentSelectedDbTable)}`;
+        console.log(`[REQUEST] GET ${url}`);
+        const res = await fetch(url);
+        console.log(`[RESPONSE] GET ${url} -> ${res.status} ${res.statusText}`);
         const data = await res.json();
+        console.log(`[BODY] /api/admin/raw-database: table=${data.selected_table}, rows=${data.total_rows}, success=${data.success}`);
         if (!data.success) throw new Error(data.error || 'Failed to fetch database data');
 
         const dbTitleEl = document.getElementById('dbBrowserTitle');
@@ -4253,7 +4246,7 @@ async function loadDatabaseBrowser(tableName = null) {
         renderRawTableRows(currentDbColumns, currentDbRawRows);
 
     } catch (err) {
-        console.error('Error loading database browser:', err);
+        console.error('[API ERROR] GET /api/admin/raw-database:', err);
         if (tbody) {
             tbody.innerHTML = `<tr><td colspan="15" class="error-state" style="color:#ef4444; padding:24px; text-align:center;">Failed to load database: ${escapeHtml(err.message)}</td></tr>`;
         }
