@@ -879,6 +879,10 @@ def get_dashboard_analytics(date_range: str = 'all'):
             """)
         tot_inv, tot_sales, avg_order = cursor.fetchone()
         
+        # All-time total invoices count (independent of dateRange filter)
+        cursor.execute("SELECT COUNT(*) FROM invoices")
+        all_time_invoices = cursor.fetchone()[0]
+        
         # 2. This Month's Sales
         cursor.execute("""
             SELECT COALESCE(SUM(total_amount), 0)
@@ -974,6 +978,7 @@ def get_dashboard_analytics(date_range: str = 'all'):
             "dateRange": date_range,
             "metrics": {
                 "totalInvoices": tot_inv,
+                "allTimeInvoices": all_time_invoices,
                 "totalSales": round(tot_sales, 2),
                 "totalRevenue": round(tot_sales, 2),
                 "thisMonthSales": round(this_month_sales, 2),
@@ -1076,9 +1081,14 @@ def get_all_invoices(
                 "downloadUrl": f"/api/download/{r[7]}" if r[7] else ""
             })
             
+        # All-time total count
+        cursor.execute("SELECT COUNT(*) FROM invoices")
+        all_time_count = cursor.fetchone()[0]
+
         return {
             "invoices": invoices,
             "totalCount": total_count,
+            "allTimeCount": all_time_count,
             "totalAmount": round(total_sum, 2),
             "customerOptions": customer_options
         }

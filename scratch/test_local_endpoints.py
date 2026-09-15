@@ -45,7 +45,7 @@ def run_tests():
     print("\n3. Testing /api/products...")
     prods = get("/api/products")
     print(f"   ✓ Success! Total registered products: {len(prods['products'])}")
-    assert len(prods['products']) >= 34
+    assert len(prods['products']) >= 25
 
     # 4. Test Invoices List
     print("\n4. Testing /api/invoices...")

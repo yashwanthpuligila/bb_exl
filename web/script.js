@@ -39,9 +39,49 @@ async function checkSystemEngineStatus() {
     }
 }
 
+// Desktop Window Lifecycle Heartbeat & Graceful Shutdown
+function initDesktopLifecycle() {
+    if (window.location.protocol === 'file:') return;
+    
+    const sessionId = 'desktop_' + Math.random().toString(36).substring(2, 10);
+    let heartbeatActive = true;
+
+    function sendHeartbeat() {
+        if (!heartbeatActive) return;
+        fetch('/api/desktop/heartbeat?session=' + sessionId, {
+            method: 'POST',
+            cache: 'no-store'
+        }).catch(function() {});
+    }
+
+    sendHeartbeat();
+    const heartbeatInterval = setInterval(sendHeartbeat, 2500);
+
+    function onWindowClosing() {
+        heartbeatActive = false;
+        clearInterval(heartbeatInterval);
+        try {
+            if (navigator.sendBeacon) {
+                navigator.sendBeacon('/api/desktop/shutdown?session=' + sessionId);
+            } else {
+                fetch('/api/desktop/shutdown?session=' + sessionId, {
+                    method: 'POST',
+                    keepalive: true,
+                    cache: 'no-store'
+                }).catch(function() {});
+            }
+        } catch (e) {}
+    }
+
+    window.addEventListener('beforeunload', onWindowClosing);
+    window.addEventListener('pagehide', onWindowClosing);
+}
+
 // Event listeners
 document.addEventListener('DOMContentLoaded', function() {
+    initDesktopLifecycle();
     checkSystemEngineStatus();
+    updateAppBadges();
     if (window.location.protocol === 'file:') {
         alert('⚠️ NOTICE: You opened this file directly from your disk (file://).\n\nTo connect to the database and generate invoices, please open:\n• http://localhost:5000\n• or double-click "run_desktop_app.bat"');
     }
@@ -67,7 +107,11 @@ document.addEventListener('DOMContentLoaded', function() {
 
     const btnTopNewInv = document.getElementById('btnTopNewInvoice');
     if (btnTopNewInv) {
-        btnTopNewInv.addEventListener('click', () => switchView('create-invoice'));
+        btnTopNewInv.addEventListener('click', () => {
+            resetCreateInvoiceForm();
+            switchView('create-invoice');
+            if (shopNameInput) shopNameInput.focus();
+        });
     }
 
     const globalDateRangeEl = document.getElementById('globalDateRange');
@@ -205,8 +249,15 @@ document.addEventListener('DOMContentLoaded', function() {
     initAutocomplete();
     
     // Live price calculation
-    quantityInput.addEventListener('input', updateLiveTotal);
-    priceInput.addEventListener('input', updateLiveTotal);
+    ['input', 'change', 'keyup'].forEach(evt => {
+        if (quantityInput) quantityInput.addEventListener(evt, updateLiveTotal);
+        if (priceInput) priceInput.addEventListener(evt, updateLiveTotal);
+        if (productNameInput) productNameInput.addEventListener(evt, function() {
+            if (!this.value.trim() && (!quantityInput.value || !priceInput.value)) {
+                updateLiveTotal();
+            }
+        });
+    });
     
     // Enter key support for product form
     [productNameInput, quantityInput, priceInput].forEach(input => {
@@ -310,6 +361,7 @@ function addProduct() {
     productNameInput.value = '';
     quantityInput.value = '';
     priceInput.value = '';
+    updateLiveTotal();
     productNameInput.focus();
     
     // Update display
@@ -320,6 +372,9 @@ function addProduct() {
     loadRecommendations();
     
     showStatus(`Added: ${productName}`, 'success');
+    if (typeof showToast === 'function') {
+        showToast(`Added: ${productName}`, 'success', 2000);
+    }
 }
 
 // Update products list display
@@ -404,25 +459,76 @@ function updateTotal() {
     if (totalAmount) totalAmount.textContent = `₹${formatIndianCurrency(grandTotal)}`;
 }
 
+// Reset and reload the Create Invoice form
+function resetCreateInvoiceForm() {
+    // 1. Clear customer inputs
+    if (shopNameInput) shopNameInput.value = '';
+    if (areaInput) areaInput.value = '';
+    
+    // 2. Clear product inputs
+    if (productNameInput) productNameInput.value = '';
+    if (quantityInput) quantityInput.value = '';
+    if (priceInput) priceInput.value = '';
+    
+    // 3. Explicitly hide and clear live preview
+    const preview = document.getElementById('livePreview');
+    if (preview) {
+        preview.textContent = '';
+        preview.style.display = 'none';
+    }
+    
+    // 4. Clear products array and extra charges
+    products = [];
+    const extraDescInput = document.getElementById('extraChargesDesc');
+    const extraAmtInput = document.getElementById('extraChargesAmount');
+    if (extraDescInput) extraDescInput.value = '';
+    if (extraAmtInput) extraAmtInput.value = '0.00';
+    
+    // 5. Reset invoice type radio to 'current'
+    const currentRadio = document.querySelector('input[name="invoiceType"][value="current"]');
+    if (currentRadio) currentRadio.checked = true;
+    
+    // 6. Hide customer recommendations
+    const recSection = document.getElementById('recommendationsSection');
+    if (recSection) recSection.style.display = 'none';
+    
+    // 7. Hide autocomplete dropdowns
+    const custDropdown = document.getElementById('customerAutocomplete');
+    const prodDropdown = document.getElementById('productAutocomplete');
+    if (custDropdown) custDropdown.style.display = 'none';
+    if (prodDropdown) prodDropdown.style.display = 'none';
+    
+    // 8. Reset validation and status message
+    if (statusMessage) {
+        statusMessage.textContent = '';
+        statusMessage.className = 'status-message';
+    }
+    
+    // 9. Re-render empty lists and totals
+    updateProductsList();
+    updateTotal();
+    if (typeof updateLiveTotal === 'function') {
+        updateLiveTotal();
+    }
+}
+
 // Clear all function
 function clearAll() {
-    const extraAmtVal = document.getElementById('extraChargesAmount')?.value;
-    const hasExtra = (extraAmtVal && extraAmtVal !== '0.00' && extraAmtVal !== '0' && parseFloat(extraAmtVal) > 0) || (document.getElementById('extraChargesDesc')?.value || '').trim();
-    if (products.length === 0 && !hasExtra) {
-        showStatus('No products or extra charges to clear', 'info');
+    const hasData = products.length > 0 ||
+        (shopNameInput && shopNameInput.value.trim() !== '') ||
+        (areaInput && areaInput.value.trim() !== '') ||
+        (productNameInput && productNameInput.value.trim() !== '') ||
+        (document.getElementById('extraChargesDesc')?.value || '').trim() !== '';
+        
+    if (!hasData) {
+        showStatus('Form is already clear', 'info');
         return;
     }
     
-    if (confirm('Are you sure you want to clear all products and extra charges?')) {
-        products = [];
-        const extraDescInput = document.getElementById('extraChargesDesc');
-        const extraAmtInput = document.getElementById('extraChargesAmount');
-        if (extraDescInput) extraDescInput.value = '';
-        if (extraAmtInput) extraAmtInput.value = '0.00';
-        updateProductsList();
-        updateTotal();
-        showStatus('All products and extra charges cleared', 'info');
-        productNameInput.focus();
+    if (confirm('Are you sure you want to clear the entire invoice form?')) {
+        resetCreateInvoiceForm();
+        showStatus('Invoice form cleared', 'info');
+        if (shopNameInput) shopNameInput.focus();
     }
 }
 
@@ -590,14 +696,20 @@ async function generateInvoice() {
             // Render and display the professional A4 Indian Wholesale Tax Invoice
             displayInvoiceModal(invoiceData, result.history || {}, result.download_url);
             
+            // Automatically reset and reload the invoice creation form for the next invoice
+            resetCreateInvoiceForm();
+            
             showToast('Tax Invoice generated successfully!', 'success', 3000);
-            showStatus('Invoice generated successfully! You can now Print / Save as PDF or Share on WhatsApp.', 'success');
+            showStatus('Invoice generated successfully! Form reset for next invoice.', 'success');
             
             // Refresh customer recommendations immediately with the updated order history
             loadCustomerRecommendations(shopName);
             if (typeof loadDashboard === 'function') {
-                const curRange = document.getElementById('globalDateRange')?.value || '30d';
+                const curRange = document.getElementById('globalDateRange')?.value || 'all';
                 loadDashboard(curRange);
+            }
+            if (typeof updateAppBadges === 'function') {
+                updateAppBadges();
             }
         } else {
             throw new Error((result && result.error) || 'Failed to generate invoice');
@@ -938,6 +1050,7 @@ function closeInvoiceModal() {
         modal.classList.remove('active');
         document.body.style.overflow = '';
     }
+    resetCreateInvoiceForm();
 }
 
 // Print invoice reliably using dedicated #printInvoiceRoot and native window.print()
@@ -1718,24 +1831,41 @@ function initAutocomplete() {
 
 // Live total calculation
 function updateLiveTotal() {
-    const quantity = parseFloat(quantityInput.value) || 0;
-    const price = parseFloat(priceInput.value) || 0;
-    const total = quantity * price;
+    const qtyVal = quantityInput ? quantityInput.value.trim() : '';
+    const priceVal = priceInput ? priceInput.value.trim() : '';
+    const preview = document.getElementById('livePreview');
     
-    if (total > 0) {
-        // Show live preview next to price field
-        let preview = document.getElementById('livePreview');
-        if (!preview) {
-            preview = document.createElement('div');
-            preview.id = 'livePreview';
-            preview.className = 'live-preview';
-            priceInput.parentElement.appendChild(preview);
+    if (qtyVal === '' || priceVal === '') {
+        if (preview) {
+            preview.textContent = '';
+            preview.style.display = 'none';
         }
-        preview.textContent = `Total: ₹${total.toFixed(2)}`;
-        preview.style.display = 'block';
+        return;
+    }
+    
+    const quantity = parseFloat(qtyVal);
+    const price = parseFloat(priceVal);
+    
+    if (!isNaN(quantity) && !isNaN(price) && quantity > 0 && price > 0) {
+        const total = quantity * price;
+        if (!preview) {
+            const p = document.createElement('div');
+            p.id = 'livePreview';
+            p.className = 'live-preview';
+            if (priceInput && priceInput.parentElement) {
+                priceInput.parentElement.appendChild(p);
+            }
+            p.textContent = `Total: ₹${total.toFixed(2)}`;
+            p.style.display = 'block';
+        } else {
+            preview.textContent = `Total: ₹${total.toFixed(2)}`;
+            preview.style.display = 'block';
+        }
     } else {
-        const preview = document.getElementById('livePreview');
-        if (preview) preview.style.display = 'none';
+        if (preview) {
+            preview.textContent = '';
+            preview.style.display = 'none';
+        }
     }
 }
 
@@ -1772,20 +1902,6 @@ function showToast(message, type = 'info', duration = 3000) {
     }, duration);
 }
 
-// Enhanced add product with toast
-const originalAddProduct = addProduct;
-addProduct = function() {
-    const productName = productNameInput.value.trim();
-    
-    if (productName) {
-        originalAddProduct.call(this);
-        showToast(`Added: ${productName}`, 'success', 2000);
-        
-        // Clear live preview
-        const preview = document.getElementById('livePreview');
-        if (preview) preview.style.display = 'none';
-    }
-};
 
 /* ==========================================================================
    ERP DASHBOARD CONTROLLER & WORKSPACE LOGIC
@@ -1884,7 +2000,7 @@ function switchView(viewName) {
 
     // Load data for view
     if (viewName === 'dashboard') {
-        const dateRange = document.getElementById('globalDateRange')?.value || '30d';
+        const dateRange = document.getElementById('globalDateRange')?.value || 'all';
         loadDashboard(dateRange);
     } else if (viewName === 'invoices') {
         loadInvoicesTable();
@@ -1892,13 +2008,17 @@ function switchView(viewName) {
         loadCustomersTable();
     } else if (viewName === 'products') {
         loadProductsTable();
+    } else if (viewName === 'create-invoice') {
+        if (typeof updateLiveTotal === 'function') {
+            updateLiveTotal();
+        }
     } else if (viewName === 'database') {
         loadDatabaseBrowser();
     }
 }
 
 // Dashboard Controller
-async function loadDashboard(dateRange = '30d') {
+async function loadDashboard(dateRange = 'all') {
     try {
         const res = await fetch(`/api/dashboard?range=${encodeURIComponent(dateRange)}`);
         const data = await res.json();
@@ -1924,11 +2044,11 @@ async function loadDashboard(dateRange = '30d') {
         if (elProducts) elProducts.textContent = (m.totalProducts || 0).toLocaleString('en-IN');
         if (elAov) elAov.textContent = formatIndianCurrency(m.averageOrderValue || 0);
 
-        // Update sidebar badges
+        // Update sidebar badges (always maintain total/all-time counts)
         const badgeInv = document.getElementById('badgeInvoiceCount');
         const badgeCust = document.getElementById('badgeCustomerCount');
         const badgeProd = document.getElementById('badgeProductCount');
-        if (badgeInv) badgeInv.textContent = m.totalInvoices || 0;
+        if (badgeInv) badgeInv.textContent = m.allTimeInvoices !== undefined ? m.allTimeInvoices : (m.totalInvoices || 0);
         if (badgeCust) badgeCust.textContent = m.totalCustomers || 0;
         if (badgeProd) badgeProd.textContent = m.totalProducts || 0;
 
@@ -2188,6 +2308,12 @@ async function loadInvoicesTable() {
         const totalEl = document.getElementById('invTableTotal');
         if (countEl) countEl.textContent = data.totalCount || 0;
         if (totalEl) totalEl.textContent = '₹' + formatIndianCurrency(data.totalAmount || 0);
+
+        // Keep sidebar badge synchronized with all-time total invoices
+        const badgeInv = document.getElementById('badgeInvoiceCount');
+        if (badgeInv) {
+            badgeInv.textContent = data.allTimeCount !== undefined ? data.allTimeCount : (data.totalCount || 0);
+        }
 
         const invoices = data.invoices || [];
         const selectAll = document.getElementById('selectAllInvoices');
@@ -3498,7 +3624,7 @@ async function updateAppBadges() {
             const bInv = document.getElementById('badgeInvoiceCount');
             const bCust = document.getElementById('badgeCustomerCount');
             const bProd = document.getElementById('badgeProductCount');
-            if (bInv) bInv.textContent = data.metrics.totalInvoices || 0;
+            if (bInv) bInv.textContent = data.metrics.allTimeInvoices !== undefined ? data.metrics.allTimeInvoices : (data.metrics.totalInvoices || 0);
             if (bCust) bCust.textContent = data.metrics.totalCustomers || 0;
             if (bProd) bProd.textContent = data.metrics.totalProducts || 0;
         }

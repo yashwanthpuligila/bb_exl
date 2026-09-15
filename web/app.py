@@ -10,6 +10,8 @@ from openpyxl.styles import Font, Alignment, Border, Side, PatternFill
 import tempfile
 import json
 import glob
+import time
+import threading
 from recommendation_engine import recommendation_engine
 import learning_db
 import shutil
@@ -381,10 +383,73 @@ def get_system_status():
     """Return database engine and environment status"""
     return jsonify({
         'success': True,
+        'app_name': 'Sri Laxmi Gayatri Traders - Invoice ERP',
         'engine': learning_db.get_database_engine_name(),
         'is_postgres': learning_db.is_postgres(),
-        'platform': 'Render Production' if learning_db.is_postgres() else 'Local Windows Desktop'
+        'platform': 'Render Production' if learning_db.is_postgres() else 'Local Windows Desktop',
+        'desktop_mode': os.environ.get('DESKTOP_MODE') == '1'
     })
+
+_last_desktop_heartbeat = time.time()
+_desktop_client_connected = False
+_shutdown_timer = None
+_shutdown_lock = threading.Lock()
+
+def _schedule_graceful_shutdown(delay=2.0):
+    global _shutdown_timer
+    with _shutdown_lock:
+        if _shutdown_timer is not None:
+            _shutdown_timer.cancel()
+        print(f"⏱️ Desktop shutdown scheduled in {delay}s...")
+        def _do_exit():
+            print("🛑 Desktop shutdown confirmed. Cleanly stopping backend...")
+            os._exit(0)
+        _shutdown_timer = threading.Timer(delay, _do_exit)
+        _shutdown_timer.daemon = True
+        _shutdown_timer.start()
+
+def _cancel_scheduled_shutdown():
+    global _shutdown_timer
+    with _shutdown_lock:
+        if _shutdown_timer is not None:
+            print("🔄 Desktop client reconnected. Cancelling scheduled shutdown.")
+            _shutdown_timer.cancel()
+            _shutdown_timer = None
+
+@app.route('/api/desktop/heartbeat', methods=['GET', 'POST'])
+def desktop_heartbeat():
+    """Receive heartbeat pings from desktop frontend"""
+    global _last_desktop_heartbeat, _desktop_client_connected
+    _last_desktop_heartbeat = time.time()
+    _desktop_client_connected = True
+    _cancel_scheduled_shutdown()
+    return jsonify({'status': 'ok', 'timestamp': _last_desktop_heartbeat})
+
+@app.route('/api/desktop/shutdown', methods=['GET', 'POST'])
+def desktop_shutdown():
+    """Trigger graceful backend shutdown from desktop client"""
+    if os.environ.get('DESKTOP_MODE') == '1':
+        _schedule_graceful_shutdown(delay=2.0)
+    return jsonify({'status': 'shutdown_scheduled'})
+
+def _start_desktop_watchdog():
+    if os.environ.get('DESKTOP_MODE') == '1':
+        def _watchdog_loop():
+            # Allow up to 45 seconds on cold start for initial frontend connection
+            for _ in range(45):
+                time.sleep(1)
+                if _desktop_client_connected:
+                    break
+            while True:
+                time.sleep(2)
+                # If desktop window connected then went silent for > 8s, cleanly exit
+                if _desktop_client_connected and (time.time() - _last_desktop_heartbeat > 8):
+                    print("⚠️ Desktop client disconnected. Stopping backend process...")
+                    os._exit(0)
+        watchdog = threading.Thread(target=_watchdog_loop, daemon=True)
+        watchdog.start()
+
+_start_desktop_watchdog()
 
 @app.route('/api/stats')
 def get_stats():
@@ -1352,9 +1417,16 @@ def create_excel_invoice(customer, products, invoice_number, invoice_type='curre
     return filename, history_data
 
 if __name__ == '__main__':
-    print("🚀 Starting Invoice Generator Web Server...")
-    print("📄 Open your browser and go to: http://localhost:5000")
-    print("🛑 Press Ctrl+C to stop the server")
-    
+    is_desktop = os.environ.get('DESKTOP_MODE') == '1'
     port = int(os.environ.get('PORT', 5000))
-    app.run(debug=True, host='0.0.0.0', port=port)
+    host = '127.0.0.1' if is_desktop else '0.0.0.0'
+    debug = False if is_desktop else True
+    use_reloader = False if is_desktop else True
+    
+    mode_str = "Desktop App Mode" if is_desktop else "Web Server Mode"
+    print(f"🚀 Starting Invoice Generator ({mode_str})...")
+    print(f"📄 Listening on: http://{host}:{port}")
+    if not is_desktop:
+        print("🛑 Press Ctrl+C to stop the server")
+    
+    app.run(debug=debug, host=host, port=port, use_reloader=use_reloader)
